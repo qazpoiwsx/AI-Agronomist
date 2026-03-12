@@ -1,0 +1,8 @@
+{
+  "name": "AI Plant Health Predictor",
+  "description": "Система анализа состояния растений по фото для фермеров Казахстана. Определение болезней пшеницы, дефицита ресурсов и прогноз экономических потерь.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}
