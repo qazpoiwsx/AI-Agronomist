@@ -5,14 +5,13 @@ import webpush from "web-push";
 const app = express();
 app.use(express.json({ limit: '50mb' }));
 
-// ========== ВСПОМОГАТЕЛЬНЫЕ ЗАГЛУШКИ (для совместимости) ==========
+// ========== ЗАГЛУШКИ ДЛЯ ИСТОРИИ ==========
 app.post("/api/history", (req, res) => {
   res.json({ success: true });
 });
 
 // ========== PUSH-УВЕДОМЛЕНИЯ ==========
 app.post("/api/subscribe", (req, res) => {
-  // Просто сохраняем подписку (для демо достаточно ответить success)
   console.log("Subscription received");
   res.status(201).json({ success: true });
 });
@@ -41,7 +40,7 @@ app.post("/api/send-notification", async (req, res) => {
   }
 });
 
-// ========== ГЛАВНЫЙ АНАЛИЗ (GEMINI) ==========
+// ========== АНАЛИЗ ЧЕРЕЗ GEMINI ==========
 app.post("/api/analyze", async (req, res) => {
   try {
     const { image, culture, ageDays, location, customCultureName, lang, currency, unitSystem } = req.body;
@@ -51,9 +50,8 @@ app.post("/api/analyze", async (req, res) => {
       return res.status(500).json({ error: "GEMINI_API_KEY is not set in Vercel environment" });
     }
 
-    const genAI = new GoogleGenAI(apiKey);
-    // Используем стабильную модель (можно заменить на "gemini-2.0-flash-exp", если она доступна вашему ключу)
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    // Правильная инициализация
+    const genAI = new GoogleGenAI({ apiKey });
 
     const plantName = culture === 'other' && customCultureName ? customCultureName : culture;
     const areaUnit = unitSystem === 'metric' ? '1 hectare' : '1 acre';
@@ -83,7 +81,10 @@ app.post("/api/analyze", async (req, res) => {
     `;
 
     const imageBase64 = image.split(",")[1];
-    const result = await model.generateContent({
+
+    // Правильный вызов API
+    const result = await genAI.models.generateContent({
+      model: "gemini-1.5-flash",
       contents: [
         {
           parts: [
@@ -94,7 +95,9 @@ app.post("/api/analyze", async (req, res) => {
       ]
     });
 
-    const text = result.response.candidates?.[0]?.content?.parts?.[0]?.text || result.response.text();
+    const text = result.candidates?.[0]?.content?.parts?.[0]?.text || result.text;
+    if (!text) throw new Error("Empty response from Gemini");
+
     // Очистка от markdown-обёрток
     let jsonString = text;
     if (text.includes("```json")) {
@@ -117,15 +120,15 @@ app.post("/api/chat", async (req, res) => {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) return res.status(500).json({ error: "No API key" });
 
-    const genAI = new GoogleGenAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    const result = await model.generateContent({
+    const genAI = new GoogleGenAI({ apiKey });
+    const result = await genAI.models.generateContent({
+      model: "gemini-1.5-flash",
       contents: messages.map(m => ({
         role: m.role === 'user' ? 'user' : 'model',
         parts: [{ text: m.text }]
       }))
     });
-    const reply = result.response.candidates?.[0]?.content?.parts?.[0]?.text || result.response.text();
+    const reply = result.candidates?.[0]?.content?.parts?.[0]?.text || result.text;
     res.json({ text: reply });
   } catch (err) {
     console.error("Chat error:", err);
