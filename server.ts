@@ -10,8 +10,11 @@ import dotenv from "dotenv";
 import { GoogleGenAI, Type } from "@google/genai";
 import { initializeApp, cert, getApps } from "firebase-admin/app";
 import { getAuth, Auth } from "firebase-admin/auth";
+import dns from "dns";
 
 dotenv.config();
+
+dns.setDefaultResultOrder("ipv4first");
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
