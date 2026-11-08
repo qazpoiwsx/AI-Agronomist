@@ -1243,7 +1243,6 @@ self.addEventListener('activate', (e) => { e.waitUntil(self.clients.claim()); })
     app.post("/api/analyze", async (req, res) => {
       try {
         const {
-          base64Image,
           culture,
           ageDays,
           location,
@@ -1253,6 +1252,7 @@ self.addEventListener('activate', (e) => { e.waitUntil(self.clients.claim()); })
           currency,
           unitSystem
         } = req.body;
+        const base64Image = req.body.base64Image || req.body.image;
 
         if (!isGeminiConfigured()) {
           return res.status(503).json({
