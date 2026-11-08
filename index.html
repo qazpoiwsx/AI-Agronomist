@@ -3,7 +3,57 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ИИ Агрономист</title>
+    <title>AI Agronomist</title>
+    <meta name="description" content="Система анализа состояния растений по фото для фермеров Казахстана. Определение болезней пшеницы, дефицита ресурсов и прогноз экономических потерь." />
+    <meta property="og:title" content="AI Agronomist" />
+    <meta property="og:description" content="Система анализа состояния растений по фото для фермеров Казахстана. Определение болезней пшеницы, дефицита ресурсов и прогноз экономических потерь." />
+    <script>
+      // Подавление ошибок WebSocket и Vite в среде разработки AI Studio
+      (function() {
+        // Отключение оверлея ошибок Vite
+        window.__VITE_HMR_CONFIG__ = { overlay: false };
+
+        const originalError = console.error;
+        const originalWarn = console.warn;
+        
+        const isIgnoredError = (msg) => {
+          if (typeof msg !== 'string') return false;
+          return msg.includes('[vite]') || 
+                 msg.includes('WebSocket connection') || 
+                 msg.includes('WebSocket closed') ||
+                 msg.includes('failed to connect to websocket') ||
+                 msg.includes('Geolocation error');
+        };
+
+        console.error = function(...args) {
+          if (args[0] && isIgnoredError(args[0])) return;
+          originalError.apply(console, args);
+        };
+
+        console.warn = function(...args) {
+          if (args[0] && isIgnoredError(args[0])) return;
+          originalWarn.apply(console, args);
+        };
+
+        window.addEventListener('unhandledrejection', function(event) {
+          if (event.reason && (
+            (event.reason.message && (event.reason.message.includes('WebSocket') || event.reason.message.includes('vite'))) ||
+            (event.reason.name && event.reason.name === 'WebSocketError') ||
+            (event.reason.code === 'ECONNREFUSED')
+          )) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+          }
+        }, true);
+
+        window.addEventListener('error', function(event) {
+          if (event.message && (event.message.includes('WebSocket') || event.message.includes('vite'))) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+          }
+        }, true);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

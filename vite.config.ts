@@ -19,7 +19,10 @@ export default defineConfig(({mode}) => {
         srcDir: 'src',
         filename: 'sw.js',
         registerType: 'autoUpdate',
-        injectRegister: 'auto',
+        injectRegister: null,
+        injectManifest: {
+          maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
+        },
         manifest: {
           name: 'ИИ Агрономист',
           short_name: 'Агрономист',
@@ -41,23 +44,18 @@ export default defineConfig(({mode}) => {
           ]
         },
         devOptions: {
-          enabled: true,
-          type: 'module'
+          enabled: false
         }
       })
     ],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': path.resolve(__dirname, './src'),
       },
     },
-    define: {
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-    },
     server: {
-      // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
-      hmr: process.env.DISABLE_HMR !== 'true',
+      hmr: false,
+      ws: false,
     },
   };
 });

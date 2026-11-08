@@ -1,0 +1,50 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    // --- Validation Blueprints ---
+    function isValidDrone(data) {
+      return data.name is string && data.name.size() <= 128 &&
+             data.ownerId == request.auth.uid &&
+             data.status in ['active', 'idle', 'charging', 'offline', 'returning', 'landing'] &&
+             data.lat is number && data.lng is number &&
+             (data.get('homeLat', 0) is number) &&
+             (data.get('homeLng', 0) is number) &&
+             (data.get('battery', 0) is number) &&
+             (data.get('altitude', 0) is number) &&
+             (data.get('speed', 0) is number) &&
+             (data.get('bearing', 0) is number) &&
+             (data.get('path', []) is list);
+    }
+
+    // --- Rules ---
+    match /drones/{droneId} {
+      allow create: if isSignedIn() && isValidId(droneId) && isValidDrone(incoming());
+      
+      allow read: if isSignedIn() && existing().ownerId == request.auth.uid;
+      
+      allow update: if isSignedIn() && isValidDrone(incoming()) && (
+        isOwner(existing().ownerId) && incoming().ownerId == existing().ownerId
+      );
+      
+      allow delete: if isSignedIn() && isOwner(existing().ownerId);
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow create: if isOwner(userId) && incoming().uid == request.auth.uid;
+      allow update: if isOwner(userId) && incoming().uid == existing().uid;
+    }
+  }
+}

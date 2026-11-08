@@ -1,0 +1,48 @@
+{
+  "entities": {
+    "Drone": {
+      "title": "Drone",
+      "description": "Information about an agricultural drone unit",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "idle", "charging", "offline"] },
+        "battery": { "type": "number" },
+        "altitude": { "type": "number" },
+        "speed": { "type": "number" },
+        "connectivity": { "type": "number" },
+        "scannedArea": { "type": "number" },
+        "lat": { "type": "number" },
+        "lng": { "type": "number" },
+        "bearing": { "type": "number" },
+        "gpsAccuracy": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "ownerId", "status", "lat", "lng"]
+    },
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Public and private user data",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "email": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "firestore": {
+    "/drones/{droneId}": {
+      "schema": "Drone",
+      "description": "Collection of drones owned by users"
+    },
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile documents"
+    }
+  }
+}
