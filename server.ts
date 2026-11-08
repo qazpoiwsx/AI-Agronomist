@@ -125,6 +125,7 @@ if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
 
 async function startServer() {
   const app = express();
+  app.set('trust proxy', 1);
   const PORT = 3000;
 
     // Initialize Database in PostgreSQL
