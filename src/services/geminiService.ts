@@ -1,24 +1,6 @@
 import { AnalysisResult, PlantCulture, ChatMessage, Currency, UnitSystem } from "../types";
 import { WeatherData } from "./weatherService";
 
-async function sendPushAfterAnalysis(result: AnalysisResult, lang: string) {
-  try {
-    const notificationBody = `${lang === 'ru' ? 'Диагноз' : lang === 'kz' ? 'Диагноз' : 'Diagnosis'}: ${result.diagnosis}. ${lang === 'ru' ? 'Потери' : lang === 'kz' ? 'Шығындар' : 'Losses'}: ${result.economicImpact?.potentialLossPercentage}%`;
-    
-    await fetch('/api/send-notification', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title: lang === 'ru' ? 'Анализ готов!' : lang === 'kz' ? 'Талдау дайын!' : 'Analysis Ready!',
-        body: notificationBody,
-        url: '/'
-      })
-    });
-  } catch (err) {
-    console.error("Failed to trigger push notification:", err);
-  }
-}
-
 export async function analyzePlantImage(
   base64Image: string,
   culture: PlantCulture,
@@ -59,7 +41,6 @@ export async function analyzePlantImage(
       4. Лечение: (2-3 tips)
       5. Профилактика: (advice)
  
-
       Language: ${lang === "ru" ? "Russian" : lang === "kz" ? "Kazakh" : "English"}.
     `;
 
@@ -110,24 +91,6 @@ export async function analyzePlantImage(
         forecast: weather.condition
       } : undefined
     };
-
-    if (analysisResponse.isPlantRelated) {
-      sendPushAfterAnalysis(analysisResponse, lang);
-    }
-
-    // Save to history on backend
-    try {
-      fetch('/api/history', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...analysisResponse,
-          userId: 'default-user'
-        })
-      });
-    } catch (err) {
-      console.error("Failed to save to history:", err);
-    }
 
     return analysisResponse;
   } catch (err: any) {
