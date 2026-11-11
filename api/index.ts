@@ -1,34 +1,65 @@
 import express from "express";
-import { GoogleGenAI } from "@google/genai";
 import webpush from "web-push";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const distPath = path.resolve(__dirname, "../dist");
 
 const app = express();
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({ limit: "50mb" }));
 
-// ========== ЗАГЛУШКИ ДЛЯ ИСТОРИИ ==========
+// Serving static files from dist
+app.use(express.static(distPath));
+
+// Database mock/in-memory for Vercel (real apps should use external DB)
+// For history, we'll just return success for now or suggest using Firebase/Supabase
 app.post("/api/history", (req, res) => {
   res.json({ success: true });
 });
 
-// ========== PUSH-УВЕДОМЛЕНИЯ ==========
+// Notifications
+app.get("/api/weather", async (req, res) => {
+  const { lat, lng } = req.query;
+  if (!lat || !lng) {
+    return res.status(400).json({ error: "Missing lat/lng" });
+  }
+
+  try {
+    const response = await fetch(
+      `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m,weather_code`
+    );
+    if (!response.ok) {
+      throw new Error(`Weather API responded with ${response.status}`);
+    }
+    const data = await response.json();
+    res.json(data);
+  } catch (err: any) {
+    console.error("Weather proxy error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post("/api/subscribe", (req, res) => {
-  console.log("Subscription received");
-  res.status(201).json({ success: true });
+  res.status(201).json({});
 });
 
 app.post("/api/send-notification", async (req, res) => {
   const { subscription, title, message } = req.body;
-  const publicKey = process.env.VITE_VAPID_PUBLIC_KEY;
-  const privateKey = process.env.VAPID_PRIVATE_KEY;
+  const vapidKeys = {
+    publicKey: process.env.VITE_VAPID_PUBLIC_KEY || process.env.VAPID_PUBLIC_KEY || '',
+    privateKey: process.env.VAPID_PRIVATE_KEY || ''
+  };
 
-  if (!publicKey || !privateKey) {
+  if (!vapidKeys.publicKey || !vapidKeys.privateKey) {
     return res.status(500).json({ error: "VAPID keys not configured" });
   }
 
   webpush.setVapidDetails(
-    "mailto:support@ai-agronomist.com",
-    publicKey,
-    privateKey
+    "mailto:example@yourdomain.com",
+    vapidKeys.publicKey,
+    vapidKeys.privateKey
   );
 
   try {
@@ -40,100 +71,9 @@ app.post("/api/send-notification", async (req, res) => {
   }
 });
 
-// ========== АНАЛИЗ ЧЕРЕЗ GEMINI ==========
-app.post("/api/analyze", async (req, res) => {
-  try {
-    const { image, culture, ageDays, location, customCultureName, lang, currency, unitSystem } = req.body;
-    const apiKey = process.env.GEMINI_API_KEY;
-
-    if (!apiKey) {
-      return res.status(500).json({ error: "GEMINI_API_KEY is not set in Vercel environment" });
-    }
-
-    // Правильная инициализация
-    const genAI = new GoogleGenAI({ apiKey });
-
-    const plantName = culture === 'other' && customCultureName ? customCultureName : culture;
-    const areaUnit = unitSystem === 'metric' ? '1 hectare' : '1 acre';
-    const weightUnit = unitSystem === 'metric' ? 'tons' : 'bushels';
-
-    const prompt = `
-      You are an expert agronomist. Analyze this plant image.
-      Culture: ${plantName}, age: ${ageDays} days.
-      Currency: ${currency}, unit system: ${unitSystem}.
-      Return ONLY valid JSON (no markdown, no extra text):
-      {
-        "isPlantRelated": true,
-        "diagnosis": "diagnosis name in ${lang}",
-        "confidence": 0.95,
-        "issueType": "disease",
-        "severity": "medium",
-        "economicImpact": {
-          "potentialLossPercentage": 25,
-          "estimatedLossPerArea": 37500,
-          "estimatedLossWeight": 0.375
-        },
-        "recommendations": [
-          { "action": "Action description", "costEffectiveness": "high", "estimatedCost": 5000 }
-        ],
-        "localizedAdvice": "Advice text in ${lang}"
-      }
-    `;
-
-    const imageBase64 = image.split(",")[1];
-
-    // Правильный вызов API
-    const result = await genAI.models.generateContent({
-      model: "gemini-1.5-flash",
-      contents: [
-        {
-          parts: [
-            { text: prompt },
-            { inlineData: { mimeType: "image/jpeg", data: imageBase64 } }
-          ]
-        }
-      ]
-    });
-
-    const text = result.candidates?.[0]?.content?.parts?.[0]?.text || result.text;
-    if (!text) throw new Error("Empty response from Gemini");
-
-    // Очистка от markdown-обёрток
-    let jsonString = text;
-    if (text.includes("```json")) {
-      jsonString = text.split("```json")[1].split("```")[0];
-    } else if (text.includes("```")) {
-      jsonString = text.split("```")[1].split("```")[0];
-    }
-    const analysisData = JSON.parse(jsonString.trim());
-    res.json(analysisData);
-  } catch (err) {
-    console.error("Analysis error:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ========== ЧАТ-АССИСТЕНТ ==========
-app.post("/api/chat", async (req, res) => {
-  try {
-    const { messages, lang } = req.body;
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) return res.status(500).json({ error: "No API key" });
-
-    const genAI = new GoogleGenAI({ apiKey });
-    const result = await genAI.models.generateContent({
-      model: "gemini-1.5-flash",
-      contents: messages.map(m => ({
-        role: m.role === 'user' ? 'user' : 'model',
-        parts: [{ text: m.text }]
-      }))
-    });
-    const reply = result.candidates?.[0]?.content?.parts?.[0]?.text || result.text;
-    res.json({ text: reply });
-  } catch (err) {
-    console.error("Chat error:", err);
-    res.status(500).json({ error: "Chat failed" });
-  }
+// Fallback for SPA
+app.get("*", (req, res) => {
+  res.sendFile(path.join(distPath, "index.html"));
 });
 
 export default app;

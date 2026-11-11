@@ -20,10 +20,14 @@ export const PushNotificationManager: React.FC<Props> = ({ lang }) => {
   
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone;
+  const hasVapidKey = !!import.meta.env.VITE_VAPID_PUBLIC_KEY;
 
   useEffect(() => {
     async function init() {
       try {
+        if (!hasVapidKey) {
+          console.warn('Push Notifications: VITE_VAPID_PUBLIC_KEY is not set.');
+        }
         const p = await checkPushPermission();
         setPermission(p);
       } catch (err) {
@@ -32,9 +36,13 @@ export const PushNotificationManager: React.FC<Props> = ({ lang }) => {
       }
     }
     init();
-  }, []);
+  }, [hasVapidKey]);
 
   const handleToggle = async () => {
+    if (!hasVapidKey) {
+      alert(lang === 'ru' ? 'Ключ VAPID не настроен. Пожалуйста, обратитесь к разработчику.' : 'VAPID key not configured. Please contact developer.');
+      return;
+    }
     setIsProcessing(true);
     try {
       if (permission === 'default' || permission === 'denied') {

@@ -1,0 +1,1191 @@
+# AI AGRONOMIST — FULL-SCALE AGRICULTURAL INTELLIGENCE PLATFORM
+
+## 1. PROJECT OVERVIEW
+
+Build a complete, production-oriented agricultural intelligence web application called **AI Agronomist**.
+
+AI Agronomist is an intelligent agricultural monitoring and decision-support platform designed to help farmers, agronomists, agricultural companies, researchers, and students monitor crop health, detect plant diseases, analyze field conditions, estimate potential economic losses, and make data-driven agricultural decisions.
+
+This must be a functional application, NOT a landing page, NOT a static dashboard, NOT a UI prototype, and NOT a fake MVP.
+
+The application must have a real backend, database, authentication, file storage, API integrations, data processing, interactive maps, and working business logic.
+
+**Main product philosophy:**
+
+DETECT → ANALYZE → EXPLAIN → PREDICT → RECOMMEND → VERIFY
+
+Every feature must be connected to the actual application architecture. Do not create buttons that do nothing, fake analysis results, simulated API responses presented as real results, or hardcoded statistics presented as live data.
+
+If an external service is not configured, show a clear configuration or service-unavailable state.
+
+---
+
+# 2. TECHNOLOGY STACK
+
+Use the following technologies:
+
+### Frontend
+- React
+- TypeScript
+- Vite
+- Tailwind CSS
+- shadcn/ui
+- Lucide icons
+- React Router
+- TanStack Query
+- React Hook Form
+- Zod
+
+### Backend
+- Supabase
+- PostgreSQL
+- PostGIS
+- Supabase Authentication
+- Supabase Storage
+- Supabase Edge Functions
+- Row Level Security (RLS)
+
+### AI
+- Google Gemini API
+- Gemini model configured through environment variables
+- Structured JSON responses
+- Context-aware agricultural assistant
+
+### Maps and geospatial analysis
+- Leaflet
+- OpenStreetMap
+- PostGIS
+- GeoJSON
+
+### Charts and visualization
+- Recharts
+
+Use the existing Supabase project and its current database architecture if available. Do not unnecessarily recreate existing tables, migrations, authentication, or working features.
+
+Keep the application modular, scalable, maintainable, and type-safe.
+
+---
+
+# 3. DESIGN AND USER EXPERIENCE
+
+Create a professional agricultural technology interface.
+
+The design should feel like a combination of:
+- Modern precision agriculture software
+- Professional GIS monitoring platform
+- Enterprise SaaS dashboard
+- AI-powered analytical system
+
+### Visual identity
+
+Main colors:
+- Deep forest green: #163D2B
+- Primary green: #2F7D4A
+- Light green: #E8F3E9
+- Off-white: #F7F9F6
+- Dark text: #17251D
+- Neutral gray: #6B756E
+- Warning amber: #E9A23B
+- Danger red: #D94A4A
+
+### Design requirements
+
+- Clean and professional interface.
+- Consistent spacing and typography.
+- Responsive layout for desktop, tablet, and mobile.
+- Sidebar navigation.
+- Top navigation bar with notifications and user profile.
+- Interactive cards, charts, maps, tables, and filters.
+- Loading skeletons.
+- Empty states.
+- Error states.
+- Success notifications.
+- Confirmation dialogs for destructive actions.
+- Accessible contrast and keyboard navigation.
+
+Avoid excessive gradients, unnecessary animations, oversized cards, and decorative elements that reduce usability.
+
+The interface should be available in:
+- English
+- Russian
+- Kazakh
+
+Implement language switching throughout the entire application, not just on the dashboard.
+
+---
+
+# 4. AUTHENTICATION AND USER MANAGEMENT
+
+Implement complete authentication using Supabase Auth.
+
+Features:
+- Registration.
+- Login.
+- Logout.
+- Password reset.
+- Email verification.
+- Persistent sessions.
+- Protected routes.
+- User profile.
+- Profile editing.
+- Organization creation.
+- Organization membership.
+- Role-based access control.
+
+User roles:
+
+1. FARMER
+   - Manage own fields.
+   - Upload images.
+   - Create drone missions.
+   - View analyses.
+   - Receive recommendations.
+
+2. AGRONOMIST
+   - Access authorized agricultural data.
+   - Review analyses.
+   - Validate AI-generated diagnoses.
+   - Add professional recommendations.
+
+3. ADMIN
+   - Manage organization members.
+   - Manage access permissions.
+   - Monitor system configuration.
+   - View system activity.
+
+All organization-specific data must be isolated using Supabase RLS.
+
+Never expose service-role keys or API secrets in frontend code.
+
+---
+
+# 5. MAIN DASHBOARD
+
+Create an analytical dashboard showing the actual data belonging to the authenticated user and organization.
+
+### Dashboard components
+
+**Overview statistics:**
+- Total registered fields.
+- Total cultivated area.
+- Number of active drone missions.
+- Number of completed analyses.
+- Fields requiring attention.
+- Number of detected disease cases.
+
+**Field health overview:**
+- Healthy area.
+- Area with potential stress.
+- Area with confirmed disease detections.
+- Area awaiting analysis.
+
+**Charts:**
+- Crop health over time.
+- Disease detection distribution.
+- Field condition trends.
+- Weather trends.
+- Historical analysis activity.
+
+**Recent activity:**
+- Recent drone missions.
+- Latest analyses.
+- New detections.
+- Recommendations.
+- Notifications.
+
+**Critical alerts:**
+- High-risk field conditions.
+- Weather-related agricultural risks.
+- Failed processing tasks.
+- Missing configuration for external services.
+
+All statistics must come from database queries.
+
+Do not use invented values to make the dashboard look populated.
+
+If the user has no data, display a useful onboarding state explaining how to add their first field.
+
+---
+
+# 6. FIELD MANAGEMENT
+
+Create a complete field management module.
+
+Users must be able to:
+
+- Create a field.
+- Edit field information.
+- Delete a field.
+- View field details.
+- Set field boundaries on an interactive map.
+- Import GeoJSON.
+- Store field coordinates.
+- Select crop type.
+- Enter cultivated area.
+- Record planting date.
+- Record expected harvest date.
+- Enter soil information.
+- Add notes.
+
+Each field should contain:
+
+- Field name.
+- Location.
+- Polygon boundary.
+- Calculated area.
+- Crop type.
+- Variety.
+- Planting date.
+- Soil type.
+- Irrigation type.
+- Current health status.
+- Latest analysis.
+- Historical analyses.
+
+Use PostGIS for geospatial calculations.
+
+Calculate the field area from its actual polygon geometry, not from a manually entered approximation.
+
+Support crop types including:
+
+- Wheat.
+- Barley.
+- Corn.
+- Rice.
+- Cotton.
+- Sunflower.
+- Potato.
+- Soybean.
+- Canola.
+- Other configurable crops.
+
+Create a detailed field page with tabs:
+
+1. Overview.
+2. Map.
+3. Analyses.
+4. Drone missions.
+5. Weather.
+6. Recommendations.
+7. History.
+
+---
+
+# 7. INTERACTIVE AGRICULTURAL MAP
+
+Create a professional GIS-based field monitoring system using Leaflet and OpenStreetMap.
+
+### Map features
+
+- Display all registered fields.
+- Display field polygon boundaries.
+- Display field names.
+- Display field health status.
+- Display drone mission locations.
+- Display image GPS coordinates.
+- Display disease detection locations.
+- Display stress zones.
+- Display weather information when available.
+
+### Map layers
+
+Implement separate selectable layers:
+
+1. Field boundaries.
+2. Crop health.
+3. Disease detections.
+4. Stress zones.
+5. Drone image locations.
+6. Weather information.
+
+Each layer must be independently switchable.
+
+### Map interactions
+
+- Zoom.
+- Pan.
+- Click on a field.
+- View field information.
+- Click on a detection.
+- View diagnosis details.
+- Filter by field.
+- Filter by date.
+- Filter by disease.
+- Filter by severity.
+
+Use actual geospatial data.
+
+Do not generate fake disease heatmaps or arbitrary coordinates.
+
+If no geospatial analysis is available, clearly show that the layer has no data.
+
+---
+
+# 8. DRONE MISSION MANAGEMENT
+
+Build a drone mission management module.
+
+Users must be able to:
+
+- Create a mission.
+- Select a field.
+- Define a mission name.
+- Set planned flight date.
+- Configure flight altitude.
+- Configure image overlap.
+- Configure flight parameters.
+- Upload captured images.
+- View mission progress.
+- View mission history.
+- Review processing status.
+
+Mission statuses:
+
+CREATED  
+READY  
+IN_PROGRESS  
+UPLOADING  
+PROCESSING  
+COMPLETED  
+FAILED
+
+### Drone workflow
+
+Design the system to support the following real workflow:
+
+1. User creates a drone mission.
+2. The system stores mission parameters.
+3. Drone captures images.
+4. Images are uploaded to Supabase Storage.
+5. Image metadata is stored in the database.
+6. GPS coordinates and timestamps are extracted or received.
+7. Images are sent to the image-processing pipeline.
+8. Processing results are stored.
+9. Results appear on the field map.
+10. User receives a notification.
+
+### Important
+
+Do not claim that the platform controls a physical drone unless an actual drone SDK or flight-controller integration exists.
+
+If direct drone integration is not configured, support manual image upload and clearly distinguish it from an actual automated flight.
+
+Do not present simulated mission progress as a real drone flight.
+
+---
+
+# 9. IMAGE UPLOAD AND PROCESSING
+
+Implement a robust image upload system.
+
+Requirements:
+
+- Upload multiple images.
+- Support JPG, JPEG, PNG, and supported image formats.
+- Validate file types.
+- Validate file sizes.
+- Display upload progress.
+- Handle interrupted uploads.
+- Prevent duplicate submissions where possible.
+- Store images in a private Supabase Storage bucket.
+- Save metadata in PostgreSQL.
+- Use signed URLs when accessing private files.
+
+Image metadata should include:
+
+- Image ID.
+- Field ID.
+- Mission ID.
+- File path.
+- Upload timestamp.
+- Capture timestamp.
+- Latitude.
+- Longitude.
+- Altitude, if available.
+- Image dimensions.
+- Processing status.
+
+### Image quality control
+
+Implement quality checks where technically possible:
+
+- Resolution.
+- File corruption.
+- Exposure.
+- Blur.
+- Image readability.
+- Missing metadata.
+
+If quality assessment is unavailable, show the limitation instead of claiming the image passed inspection.
+
+---
+
+# 10. AI PLANT DISEASE DETECTION
+
+Build the disease analysis pipeline.
+
+The platform must support an external machine-learning inference service.
+
+Architecture:
+
+Frontend → Supabase Edge Function → ML inference service → Structured results → Database → Dashboard and map.
+
+### Required detection categories
+
+Support configurable disease classes for different crops.
+
+Examples:
+
+- Wheat leaf rust.
+- Wheat powdery mildew.
+- Wheat septoria.
+- Corn leaf blight.
+- Rice blast.
+- Potato late blight.
+- Cotton leaf disease.
+
+Also support:
+- Nutrient deficiency.
+- Water stress.
+- Heat stress.
+- Possible pest damage.
+- Unknown or unclassified condition.
+
+Do not assume that every crop supports every disease class.
+
+### Analysis results
+
+Each analysis should contain:
+
+- Crop type.
+- Detected condition.
+- Disease category.
+- Confidence score.
+- Severity level.
+- Affected area, if measured.
+- Detection coordinates, if available.
+- Image reference.
+- Model name.
+- Model version.
+- Processing timestamp.
+
+### Confidence handling
+
+Use transparent confidence levels.
+
+- High confidence.
+- Medium confidence.
+- Low confidence.
+- Inconclusive.
+
+Do not describe low-confidence predictions as confirmed diagnoses.
+
+If confidence is insufficient, recommend additional inspection or professional agronomist review.
+
+### Critical requirement
+
+Do not create a fake machine-learning model.
+
+If no trained model is connected, the application must show:
+
+"ML inference service is not configured. Disease detection is currently unavailable."
+
+Create a clean inference-service interface so a real trained model can be connected later without rewriting the entire frontend.
+
+Do not claim 89%, 93%, or 95% accuracy unless verified through actual evaluation on a documented dataset.
+
+---
+
+# 11. WEATHER INTEGRATION
+
+Integrate OpenWeather API through a Supabase Edge Function.
+
+Never expose the API key in frontend code.
+
+Use the secret:
+
+OPENWEATHER_API_KEY
+
+### Weather data
+
+Retrieve and store:
+
+- Current temperature.
+- Humidity.
+- Precipitation.
+- Wind speed.
+- Wind direction.
+- Atmospheric pressure.
+- Weather conditions.
+- Forecast data.
+
+Weather should be associated with the relevant field coordinates.
+
+### Agricultural weather analysis
+
+Create a weather-risk module that can evaluate:
+
+- Conditions potentially favorable for fungal disease.
+- High humidity.
+- Heavy rainfall.
+- Heat stress.
+- Drought risk.
+- Frost risk.
+- Strong wind.
+
+Weather conditions are risk indicators, not proof of disease.
+
+Do not diagnose plant diseases based only on weather data.
+
+### Reliability
+
+Implement:
+
+- Request timeouts.
+- Retry logic.
+- Caching.
+- API error handling.
+- Last successful update timestamp.
+- Clear distinction between current observations and forecasts.
+
+If the API is unavailable, show the last available data and indicate that it may be outdated.
+
+---
+
+# 12. AI AGRONOMIST ASSISTANT
+
+Create an intelligent agricultural assistant powered by the official Google Gemini API.
+
+Use the secret:
+
+GEMINI_API_KEY
+
+The AI integration must use the official Gemini API endpoint and a configurable supported model.
+
+Do not send Gemini keys to the frontend.
+
+Do not use the old OpenAI endpoint for Gemini requests.
+
+### Assistant capabilities
+
+The AI Agronomist should help users:
+
+- Understand plant disease analysis.
+- Interpret confidence scores.
+- Explain crop stress.
+- Understand weather-related risks.
+- Interpret field health trends.
+- Explain possible economic losses.
+- Understand treatment recommendations.
+- Plan agricultural activities.
+- Compare historical analyses.
+- Ask questions about specific fields.
+
+### Context-aware conversations
+
+The assistant should receive relevant context from the authenticated user's data:
+
+- Selected field.
+- Crop type.
+- Field area.
+- Planting date.
+- Recent analyses.
+- Detected diseases.
+- Stress zones.
+- Weather observations.
+- Weather forecasts.
+- Previous recommendations.
+
+Only send context that the current user is authorized to access.
+
+### Structured responses
+
+Ask Gemini to return structured responses containing:
+
+- Short answer.
+- Explanation.
+- Evidence from available data.
+- Possible causes.
+- Recommended next steps.
+- Urgency.
+- Confidence or uncertainty.
+- Whether professional inspection is recommended.
+
+Validate the returned JSON before using it.
+
+If Gemini returns invalid data, handle the error safely.
+
+### Safety and reliability
+
+The AI must:
+
+- Never invent analysis results.
+- Never invent weather measurements.
+- Never claim that an unverified disease is confirmed.
+- Distinguish observed facts from hypotheses.
+- Explain uncertainty.
+- Avoid unsupported chemical dosage recommendations.
+- Recommend following local regulations and product labels.
+- Recommend consulting a qualified agronomist for high-risk cases.
+
+### Chat interface
+
+Implement:
+
+- Conversation history.
+- New conversation.
+- Conversation deletion.
+- Message timestamps.
+- Loading indicators.
+- Error states.
+- Context selection.
+- Field-specific conversations.
+
+Do not fabricate AI answers when the API is unavailable.
+
+---
+
+# 13. CROP HEALTH MONITORING
+
+Build a crop health monitoring module.
+
+The system should combine available evidence from:
+
+- ML detection results.
+- Historical analyses.
+- Weather observations.
+- Field conditions.
+- Confirmed agronomist reviews.
+
+Display:
+
+- Current field health status.
+- Historical changes.
+- Detected stress.
+- Disease distribution.
+- Areas requiring inspection.
+
+If a numerical health score is implemented, document the formula and its inputs.
+
+Do not present an arbitrary score as a scientifically validated measurement.
+
+Clearly distinguish:
+
+- Measured data.
+- Model predictions.
+- Rule-based estimates.
+- Human-confirmed observations.
+
+---
+
+# 14. ECONOMIC LOSS ESTIMATION
+
+Create an economic impact module.
+
+Estimate potential agricultural losses using available information:
+
+- Field area.
+- Crop type.
+- Estimated yield.
+- Affected area.
+- Disease or stress severity.
+- Crop price.
+- Relevant historical data.
+
+Display:
+
+- Estimated affected area.
+- Estimated yield reduction.
+- Potential financial loss.
+- Assumptions.
+- Calculation method.
+- Data sources.
+- Calculation date.
+
+Make all calculations transparent.
+
+Example conceptual calculation:
+
+Potential loss = Estimated affected production × Crop market price × Estimated damage coefficient.
+
+Use actual user-entered or sourced crop prices.
+
+Do not invent market prices.
+
+If the necessary data is missing, display "Insufficient data for reliable estimation."
+
+Clearly label estimates as estimates, not guaranteed financial outcomes.
+
+---
+
+# 15. AGRONOMIC RECOMMENDATIONS
+
+Create an actionable recommendation engine.
+
+Recommendations may be generated from:
+
+- Verified disease detections.
+- ML results.
+- Weather risks.
+- Crop growth stage.
+- Historical field data.
+- Agronomist reviews.
+
+Each recommendation should contain:
+
+- Title.
+- Description.
+- Related field.
+- Related analysis.
+- Priority.
+- Reason.
+- Suggested action.
+- Expected benefit.
+- Date created.
+- Status.
+
+Priority levels:
+
+- CRITICAL.
+- HIGH.
+- MEDIUM.
+- LOW.
+
+Recommendation statuses:
+
+- NEW.
+- IN_PROGRESS.
+- COMPLETED.
+- DISMISSED.
+
+Recommendations must explain why they were generated.
+
+Never create specific pesticide dosage instructions without a reliable, crop-specific, product-specific, and legally appropriate source.
+
+---
+
+# 16. HISTORICAL ANALYSIS
+
+Build a complete analysis history module.
+
+Users must be able to:
+
+- View all analyses.
+- Filter by field.
+- Filter by crop.
+- Filter by disease.
+- Filter by date.
+- Filter by severity.
+- Open detailed analysis.
+- Compare two analyses.
+- View historical changes.
+
+Display historical charts where sufficient real data exists.
+
+Show changes in:
+
+- Disease detections.
+- Affected area.
+- Crop stress.
+- Field health indicators.
+- Weather conditions.
+
+Do not generate historical data that does not exist.
+
+---
+
+# 17. NOTIFICATIONS
+
+Create a real notification system.
+
+Notification types:
+
+- Disease detected.
+- High-risk condition.
+- Weather warning.
+- Drone mission completed.
+- Image processing failed.
+- New agronomic recommendation.
+- Agronomist review completed.
+
+Features:
+
+- Notification list.
+- Unread counter.
+- Mark as read.
+- Mark all as read.
+- Notification timestamps.
+- Link to related field or analysis.
+
+Notifications must be stored in the database.
+
+---
+
+# 18. AGRONOMIST REVIEW SYSTEM
+
+Allow professional agronomists to review AI-generated results.
+
+Features:
+
+- Request professional review.
+- Assign a review.
+- View pending reviews.
+- Confirm or reject a diagnosis.
+- Edit the diagnosis.
+- Add comments.
+- Add recommendations.
+- Record reviewer ID and review timestamp.
+
+Keep AI-generated results and human-confirmed results separate.
+
+Use human review feedback to create a structured dataset for future model evaluation and improvement, subject to appropriate permissions.
+
+---
+
+# 19. REPORT GENERATION
+
+Implement downloadable PDF reports.
+
+Reports should include:
+
+- Organization information.
+- Field information.
+- Crop type.
+- Field area.
+- Analysis date.
+- Uploaded image references.
+- Detection results.
+- Confidence scores.
+- Weather context.
+- Potential economic impact.
+- Recommendations.
+- Agronomist review, if available.
+
+Reports must be generated from actual database records.
+
+Do not include fictional information.
+
+---
+
+# 20. DATABASE AND BACKEND ARCHITECTURE
+
+Use Supabase PostgreSQL and PostGIS.
+
+Reuse existing migrations and tables where possible.
+
+Ensure the database supports the following logical entities:
+
+- profiles
+- organizations
+- organization_members
+- fields
+- drone_missions
+- mission_images
+- analyses
+- detections
+- stress_zones
+- weather_observations
+- weather_forecasts
+- yield_predictions
+- recommendations
+- notifications
+- conversations
+- chat_messages
+- agronomist_reviews
+- audit_logs
+
+Use:
+
+- UUID primary keys.
+- Foreign keys.
+- Appropriate indexes.
+- Created and updated timestamps.
+- PostGIS geometry types.
+- JSONB only where appropriate.
+- Database constraints.
+- RLS policies.
+
+All database operations must respect organization membership and permissions.
+
+Never trust frontend role checks alone.
+
+---
+
+# 21. SYSTEM SETTINGS AND API CONFIGURATION
+
+Create a settings page with:
+
+### User settings
+- Name.
+- Email.
+- Language.
+- Organization.
+- Password management.
+
+### System integrations
+- Supabase connection status.
+- Gemini API status.
+- OpenWeather API status.
+- ML inference service status.
+- Storage status.
+
+Use a secure server-side configuration status function.
+
+Never return actual secret values to the frontend.
+
+Only return statuses such as:
+
+- CONFIGURED.
+- MISSING.
+- ERROR.
+- UNAVAILABLE.
+
+Required environment variables:
+
+- GEMINI_API_KEY
+- OPENWEATHER_API_KEY
+- ML_INFERENCE_URL
+
+Add other required configuration values only when the actual implementation needs them.
+
+---
+
+# 22. SECURITY
+
+Security is mandatory.
+
+Implement:
+
+- Supabase RLS on all sensitive tables.
+- Organization-level data isolation.
+- Server-side permission checks.
+- Private storage buckets.
+- Signed URLs.
+- Input validation.
+- File validation.
+- Rate limiting where appropriate.
+- Safe error messages.
+- Protection against unauthorized record access.
+- Secure API key handling.
+- Audit logging for important operations.
+
+Check for IDOR vulnerabilities.
+
+A user must never be able to access another organization's fields, images, analyses, or conversations by changing an ID in a request.
+
+---
+
+# 23. ERROR HANDLING AND SYSTEM RELIABILITY
+
+Implement consistent error handling across the application.
+
+Handle:
+
+- Network errors.
+- Supabase errors.
+- Authentication errors.
+- Gemini API errors.
+- OpenWeather API errors.
+- ML inference errors.
+- Image upload errors.
+- Invalid file formats.
+- Missing API keys.
+- Database failures.
+- Processing timeouts.
+
+Provide clear error messages and recovery actions.
+
+Use appropriate loading, retry, and unavailable states.
+
+Never silently replace failed real services with fake data.
+
+---
+
+# 24. APPLICATION NAVIGATION
+
+Create the following sidebar structure:
+
+1. Dashboard
+2. Fields
+3. Agricultural Map
+4. Drone Missions
+5. Image Analysis
+6. Crop Health
+7. Weather
+8. Yield and Loss Forecast
+9. Recommendations
+10. AI Agronomist
+11. Analysis History
+12. Notifications
+13. Reports
+14. Settings
+
+Each route must lead to a functional page.
+
+Protect private routes.
+
+Add breadcrumbs and clear page titles.
+
+---
+
+# 25. IMPLEMENTATION REQUIREMENTS
+
+Build the application in a modular architecture.
+
+Suggested structure:
+
+src/
+  components/
+    ui/
+    layout/
+    dashboard/
+    fields/
+    maps/
+    missions/
+    analysis/
+    weather/
+    recommendations/
+    chat/
+    notifications/
+  pages/
+  hooks/
+  services/
+  integrations/
+  types/
+  schemas/
+  utils/
+  i18n/
+
+supabase/
+  migrations/
+  functions/
+    ai-agronomist/
+    weather-proxy/
+    ml-inference/
+    config-status/
+
+Keep business logic out of UI components.
+
+Use reusable components and typed service functions.
+
+Use TanStack Query for server-state management.
+
+Use Zod for validation.
+
+Avoid duplicated API logic.
+
+---
+
+# 26. DEVELOPMENT AND TESTING
+
+Do not stop after generating the frontend.
+
+Implement and validate the actual application.
+
+Required checks:
+
+1. Install dependencies.
+2. Verify the project structure.
+3. Check TypeScript.
+4. Run ESLint.
+5. Run the production build.
+6. Verify every route.
+7. Verify authentication.
+8. Verify database queries.
+9. Verify RLS policies.
+10. Verify file upload.
+11. Verify storage permissions.
+12. Verify API error handling.
+13. Verify map rendering.
+14. Verify language switching.
+15. Verify responsive layout.
+
+Fix all errors that can be resolved within the project.
+
+Do not claim that an integration works if it has not been tested.
+
+For integrations requiring external credentials or services, explain exactly what is missing and how to configure it.
+
+---
+
+# 27. DEVELOPMENT PRIORITIES
+
+Build in the following order:
+
+**PHASE 1 — FOUNDATION**
+- Project architecture.
+- Authentication.
+- Database.
+- RLS.
+- Application layout.
+- Navigation.
+- User profiles.
+
+**PHASE 2 — AGRICULTURAL DATA**
+- Field management.
+- PostGIS.
+- Interactive map.
+- Image upload.
+- Drone mission management.
+
+**PHASE 3 — INTELLIGENCE**
+- ML inference integration.
+- Disease detection.
+- Weather integration.
+- Crop health monitoring.
+- Historical analysis.
+
+**PHASE 4 — AI AND DECISION SUPPORT**
+- Gemini AI Agronomist.
+- Context-aware chat.
+- Economic loss estimation.
+- Agronomic recommendations.
+- Human review.
+
+**PHASE 5 — PRODUCTION READINESS**
+- Notifications.
+- PDF reports.
+- Security audit.
+- Error monitoring.
+- Performance improvements.
+- Testing.
+- Final validation.
+
+Do not skip backend implementation to prioritize visual design.
+
+---
+
+# 28. FINAL ACCEPTANCE CRITERIA
+
+The project is considered successfully implemented only when:
+
+- Users can register and log in.
+- Users can create and manage fields.
+- Field boundaries are stored and displayed correctly.
+- Users can upload real images.
+- Images are securely stored.
+- Drone missions can be managed.
+- Real ML inference can be connected.
+- Analysis results are stored and displayed.
+- Weather data can be retrieved through the configured API.
+- Gemini can answer questions using authorized field context.
+- Recommendations are linked to real data.
+- Economic estimates show their calculation assumptions.
+- Historical analyses are accessible.
+- Notifications work.
+- Role permissions are enforced.
+- All sensitive database records are protected by RLS.
+- The application builds successfully.
+- All implemented features have been tested.
+
+If a required external integration is not available, implement the integration interface and clearly identify the missing dependency. Do not pretend that the feature is operational.
+
+## FINAL INSTRUCTION
+
+Think like a senior full-stack engineer, GIS developer, agricultural data scientist, AI engineer, and product designer.
+
+Build a coherent, real agricultural intelligence platform — not a collection of disconnected pages.
+
+Prioritize data integrity, security, scientific transparency, usability, and actual functionality over impressive-looking but fake features.
+
+The ultimate objective is to create a platform that can genuinely help agricultural users monitor fields, understand crop conditions, detect potential problems, estimate risks, and make better decisions.

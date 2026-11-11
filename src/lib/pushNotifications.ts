@@ -1,8 +1,24 @@
 /**
- * Утилиты для управления Push-уведомлениями в браузере
+ * Safe detection for AI Studio preview iframe, development mode, or cloud sandbox
  */
+export function isPreviewOrDevEnvironment(): boolean {
+  if (typeof window === 'undefined') return true;
+  try {
+    const isIframe = window.self !== window.top;
+    const isDev = import.meta.env.DEV || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const isAiStudioPreview = window.location.hostname.includes('ais-dev-') || 
+                              window.location.hostname.includes('ais-pre-') || 
+                              window.location.hostname.includes('.run.app');
+    return isIframe || isDev || isAiStudioPreview;
+  } catch (e) {
+    return true;
+  }
+}
 
 export async function checkPushPermission(): Promise<NotificationPermission | 'unsupported'> {
+  if (isPreviewOrDevEnvironment()) {
+    return 'unsupported';
+  }
   if (!('Notification' in window) || !('serviceWorker' in navigator)) {
     return 'unsupported';
   }
@@ -10,6 +26,9 @@ export async function checkPushPermission(): Promise<NotificationPermission | 'u
 }
 
 export async function requestPushPermission(): Promise<NotificationPermission | 'unsupported'> {
+  if (isPreviewOrDevEnvironment()) {
+    return 'unsupported';
+  }
   if (!('Notification' in window)) {
     return 'unsupported';
   }
@@ -17,15 +36,18 @@ export async function requestPushPermission(): Promise<NotificationPermission | 
 }
 
 export async function registerServiceWorker() {
+  if (isPreviewOrDevEnvironment()) {
+    // Service Worker registration is skipped in AI Studio preview / dev iframe to prevent security and MIME errors
+    return null;
+  }
   if ('serviceWorker' in navigator) {
     try {
       const registration = await navigator.serviceWorker.register('/sw.js', {
         scope: '/'
       });
-      console.log('SW Registered:', registration.scope);
       return registration;
     } catch (error) {
-      console.error('SW Registration failed:', error);
+      console.warn('SW registration skipped or unsupported in current environment:', error);
       return null;
     }
   }
@@ -95,6 +117,20 @@ export async function unsubscribeUserFromPush() {
     return false;
   } catch (error) {
     console.error('Error unsubscribing:', error);
+    return false;
+  }
+}
+
+export async function triggerPushNotification(title: string, body: string, url: string = '/') {
+  try {
+    const response = await fetch('/api/send-notification', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, body, url })
+    });
+    return response.ok;
+  } catch (error) {
+    console.error('Error triggering notification:', error);
     return false;
   }
 }
