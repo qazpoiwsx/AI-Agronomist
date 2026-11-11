@@ -571,7 +571,7 @@ async function startServer() {
             lat: 51.1645,
             lng: 71.4777
           },
-          modelName: 'AgroVision-Pro v2.4 (Gemini Vision Grounded)',
+          modelName: 'Gemini 2.5 Flash',
           modelVersion: '2026.04'
         },
         {
@@ -611,7 +611,7 @@ async function startServer() {
             lat: 51.1785,
             lng: 71.4975
           },
-          modelName: 'AgroVision-Pro v2.4 (Gemini Vision Grounded)',
+          modelName: 'Gemini 2.5 Flash',
           modelVersion: '2026.04'
         }
       ];
@@ -761,11 +761,11 @@ self.addEventListener('activate', (e) => { e.waitUntil(self.clients.claim()); })
         geminiStatus: isGeminiConfigured() ? "CONFIGURED" : "NOT_CONFIGURED",
         weatherStatus: hasGoogleWeather ? "CONFIGURED_GOOGLE_WEATHER" : "CONFIGURED_OPEN_METEO",
         weatherSource: hasGoogleWeather ? "Google Weather API" : "Open-Meteo",
-        mlInferenceStatus: "CONFIGURED",
-        storageStatus: "CONFIGURED",
-        databaseStatus: "CONFIGURED",
+        mlInferenceStatus: isGeminiConfigured() ? "CONFIGURED" : "NOT_CONFIGURED",
+        storageStatus: hasDatabaseUrl ? "CONFIGURED" : "IN_MEMORY_FALLBACK",
+        databaseStatus: hasDatabaseUrl ? "CONFIGURED" : "NOT_CONFIGURED",
         platformVersion: "v2.5.0",
-        activeEngine: "Gemini + AgroVision PostGIS Pipeline"
+        activeEngine: "Gemini 2.5 Flash + PostgreSQL"
       });
     });
 
