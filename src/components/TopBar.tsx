@@ -54,7 +54,6 @@ export const TopBar: React.FC<TopBarProps> = ({
       case 'dashboard': return t.dashboard || 'Панель управления';
       case 'fields': return t.fields || 'Поля и участки';
       case 'map': return t.map || 'Агрономическая ГИС Карта';
-      case 'missions': return t.missions || 'Дрон-миссии и мониторинг';
       case 'analysis': return t.analyze || 'ИИ Диагностика болезней';
       case 'health': return t.health || 'Здоровье посевов и стресс';
       case 'weather': return t.weatherRisks || 'Метеоусловия и агрориски';
@@ -98,9 +97,9 @@ export const TopBar: React.FC<TopBarProps> = ({
         {/* System telemetry pill */}
         <div className="hidden xl:flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200/60 text-emerald-800 text-[11px] font-medium">
           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-          <span>Gemini Vision</span>
+          <span>Gemini 2.5 Flash</span>
           <span className="text-emerald-400">•</span>
-          <span>PostGIS Ready</span>
+          <span>PostgreSQL Ready</span>
         </div>
 
         {/* Role Selector Badge */}
