@@ -8,7 +8,8 @@ import {
   ShieldCheck, 
   Calendar,
   Layers,
-  Sparkles
+  Sparkles,
+  Info
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
@@ -132,8 +133,9 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       doc.setFontSize(8.5);
       doc.setTextColor(70, 70, 70);
       doc.text(t.reportsPdfResolutionText, 14, finalY3 + 6);
-      doc.text(t.reportsPdfChiefAgronomist, 14, finalY3 + 16);
-      doc.text(t.reportsPdfMonitoringOperator, 14, finalY3 + 24);
+      doc.text("Дисклеймер: Оценка носит ориентировочный характер. Решение о лечении принимает агроном.", 14, finalY3 + 12);
+      doc.text(t.reportsPdfChiefAgronomist, 14, finalY3 + 20);
+      doc.text(t.reportsPdfMonitoringOperator, 14, finalY3 + 28);
 
       doc.save(`${t.reportsPdfFileNamePrefix}_${activeField?.name || 'Field'}_${new Date().toISOString().split('T')[0]}.pdf`);
     } catch (err) {
@@ -222,13 +224,13 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
             </div>
           </div>
 
-          <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100 text-xs text-emerald-950 space-y-1">
+          <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200 text-xs text-amber-950 space-y-1">
             <h4 className="font-bold flex items-center gap-1.5">
-              <ShieldCheck className="w-4 h-4 text-[#2F7D4A]" />
-              {t.reportsLegalValidity}
+              <Info className="w-4 h-4 text-amber-600" />
+              Ориентировочная оценка
             </h4>
-            <p className="text-[11px] text-emerald-800/80 leading-relaxed">
-              {t.reportsLegalValidityDesc}
+            <p className="text-[11px] text-amber-800/80 leading-relaxed">
+              Данный отчет носит информационный характер для внутреннего использования. Решение о лечении принимает агроном.
             </p>
           </div>
         </div>
