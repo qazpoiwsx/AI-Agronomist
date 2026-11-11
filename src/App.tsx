@@ -38,19 +38,33 @@ import {
   Globe,
   Layers,
   Settings as SettingsIcon,
+  Radar,
+  FileCheck2,
+  UserCheck,
+  ShieldCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
 import { analyzePlantImage, chatWithAssistant } from './services/geminiService';
 import { fetchWeather, WeatherData } from './services/weatherService';
-import { AnalysisResult, PlantCulture, CULTURES, ChatMessage, Currency, UnitSystem } from './types';
+import { 
+  AnalysisResult, 
+  PlantCulture, 
+  CULTURES, 
+  ChatMessage, 
+  Currency, 
+  UnitSystem, 
+  UserRole, 
+  Field, 
+  DroneMission, 
+  Recommendation, 
+  AgroNotification, 
+  AgronomistReview 
+} from './types';
 import { cn } from './lib/utils';
-import { MapContainer, TileLayer, Marker, Popup, useMap, Circle, ScaleControl } from 'react-leaflet';
-import L from 'leaflet';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import { translations, Language } from './translations';
-import { Settings as SettingsModal } from './components/Settings';
 import { auth, db, isFirebaseConfigured } from './lib/firebase';
 import { 
   onAuthStateChanged, 
@@ -58,64 +72,67 @@ import {
   signOut,
   User as FirebaseUser
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
 
-type Tab = 'analyze' | 'history' | 'map' | 'assistant';
+import { triggerPushNotification, registerServiceWorker } from './lib/pushNotifications';
 
-// Map controller to handle bounds and centering
-function MapController({ markers, userLocation, onMapClick, mapRef }: { markers: AnalysisResult[], userLocation?: { lat: number, lng: number }, onMapClick: (lat: number, lng: number) => void, mapRef: React.MutableRefObject<L.Map | null> }) {
-  const map = useMap();
-  
-  useEffect(() => {
-    mapRef.current = map;
-    return () => { mapRef.current = null; };
-  }, [map, mapRef]);
-
-  useEffect(() => {
-    // Invalidate size to fix rendering issues on tab switch/resize
-    const timer = setTimeout(() => {
-      map.invalidateSize();
-    }, 100);
-    
-    const handleResize = () => map.invalidateSize();
-    window.addEventListener('resize', handleResize);
-    
-    if (markers.length > 0) {
-      const bounds = L.latLngBounds(markers.filter(m => m.location).map(m => [m.location!.lat, m.location!.lng]));
-      const isMobile = window.innerWidth < 640;
-      map.fitBounds(bounds, { padding: isMobile ? [20, 20] : [50, 50], maxZoom: 18 });
-    } else if (userLocation) {
-      map.setView([userLocation.lat, userLocation.lng], 15);
-    }
-
-    return () => {
-      clearTimeout(timer);
-      window.removeEventListener('resize', handleResize);
-    };
-  }, [markers, userLocation, map]);
-
-  useEffect(() => {
-    const handleClick = (e: L.LeafletMouseEvent) => {
-      onMapClick(e.latlng.lat, e.latlng.lng);
-    };
-    map.on('click', handleClick);
-    return () => {
-      map.off('click', handleClick);
-    };
-  }, [map, onMapClick]);
-
-  return null;
-}
+// Enterprise Platform Navigation & Modular Components
+import { Sidebar, TabRoute } from './components/Sidebar';
+import { TopBar } from './components/TopBar';
+import { DashboardView } from './components/DashboardView';
+import { FieldsView } from './components/FieldsView';
+import { AgroMapView } from './components/AgroMapView';
+import { CropHealthView } from './components/CropHealthView';
+import { WeatherRiskView } from './components/WeatherRiskView';
+import { YieldLossView } from './components/YieldLossView';
+import { RecommendationsView } from './components/RecommendationsView';
+import { AgronomistReviewModal } from './components/AgronomistReviewModal';
+import { NotificationsView } from './components/NotificationsView';
+import { ReportsView } from './components/ReportsView';
+import { Settings as SettingsComponent } from './components/Settings';
+import { AuthModal } from './components/AuthModal';
+import { 
+  getDemoDataEnabled, 
+  setDemoDataEnabled as saveDemoDataEnabled, 
+  isSeedField, 
+  isSeedMission, 
+  isSeedRecommendation, 
+  isSeedAnalysis,
+  isSeedNotification
+} from './lib/demoData';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<Tab>('analyze');
+  // Navigation & Platform States
+  const [activeTab, setActiveTab] = useState<TabRoute>('dashboard');
+  const [userRole, setUserRole] = useState<UserRole>('AGRONOMIST');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
+  // Demo Data State (default false for clean database)
+  const [demoDataEnabled, setDemoDataEnabledState] = useState<boolean>(getDemoDataEnabled());
+
+  const handleSetDemoDataEnabled = (enabled: boolean) => {
+    setDemoDataEnabledState(enabled);
+    saveDemoDataEnabled(enabled);
+  };
+
+  // Agricultural Domain Entities State
+  const [fields, setFields] = useState<Field[]>([]);
+  const [missions, setMissions] = useState<DroneMission[]>([]);
+  const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
+  const [notifications, setNotifications] = useState<AgroNotification[]>([]);
+  const [selectedFieldForMap, setSelectedFieldForMap] = useState<Field | null>(null);
+  const [reviewModalAnalysis, setReviewModalAnalysis] = useState<AnalysisResult | null>(null);
+
+  // Auth & User States
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [isAuthLoading, setIsAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  
+
+  // Analysis State
   const [image, setImage] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
@@ -126,133 +143,146 @@ export default function App() {
   const [ageDays, setAgeDays] = useState<number>(30);
   const [location, setLocation] = useState<{ lat: number; lng: number; accuracy?: number } | undefined>();
   const [weather, setWeather] = useState<WeatherData | null>(null);
+
+  // Filtered collections: only known seed records with IDs field-1..field-4/org-1 are filtered out when demoDataEnabled is false.
+  // New user created records are never filtered out!
+  const displayedFields = demoDataEnabled ? fields : fields.filter(f => !isSeedField(f));
+  const displayedMissions = demoDataEnabled ? missions : missions.filter(m => !isSeedMission(m));
+  const displayedRecommendations = demoDataEnabled ? recommendations : recommendations.filter(r => !isSeedRecommendation(r));
+  const displayedHistory = demoDataEnabled ? history : history.filter(h => !isSeedAnalysis(h));
+  const displayedNotifications = demoDataEnabled ? notifications : notifications.filter(n => !isSeedNotification(n));
+  
+  // App Preferences
   const [lang, setLang] = useState<Language>('ru');
   const [currency, setCurrency] = useState<Currency>('KZT');
   const [unitSystem, setUnitSystem] = useState<UnitSystem>('metric');
-  const [showSettings, setShowSettings] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [infoModal, setInfoModal] = useState<'privacy' | 'help' | 'contacts' | null>(null);
-  const [mapMode, setMapMode] = useState<'map' | 'satellite' | 'hybrid'>('hybrid');
   const [highlightedHistoryId, setHighlightedHistoryId] = useState<string | null>(null);
   const [selectedHistoryIds, setSelectedHistoryIds] = useState<Set<string>>(new Set());
-  
-  const t = translations[lang];
 
-  const getWeatherCondition = (code: number) => {
-    const conditions = t.weatherConditions as any;
-    if (code === 0) return conditions.clear;
-    if (code === 1) return conditions.mostlyClear;
-    if (code === 2) return conditions.partlyCloudy;
-    if (code === 3) return conditions.overcast;
-    if (code === 45 || code === 48) return conditions.fog;
-    if (code === 51 || code === 53 || code === 55) return conditions.drizzle;
-    if (code === 61) return conditions.lightRain;
-    if (code === 63) return conditions.moderateRain;
-    if (code === 65) return conditions.heavyRain;
-    if (code === 71) return conditions.lightSnow;
-    if (code === 73) return conditions.moderateSnow;
-    if (code === 75) return conditions.heavySnow;
-    if (code === 80 || code === 81 || code === 82) return conditions.rainShowers;
-    if (code === 95 || code === 96 || code === 99) return conditions.thunderstorm;
-    return conditions.unknown;
-  };
-  
   // Chat state
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [isChatLoading, setIsChatLoading] = useState(false);
-  
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const historyRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
-  const mapRef = useRef<L.Map | null>(null);
 
-  const scrollToHistoryItem = (id: string) => {
-    setActiveTab('history');
-    setHighlightedHistoryId(id);
-    
-    // Give time for tab switch
-    setTimeout(() => {
-      const element = historyRefs.current[id];
-      if (element) {
-        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const t = translations[lang];
+
+  const unreadNotifsCount = displayedNotifications.filter(n => !n.read).length;
+
+  const DEFAULT_COORDS = { lat: 43.2389, lng: 76.8897, accuracy: 500 };
+
+  const applyFallbackLocation = () => {
+    setLocation((prev) => {
+      if (!prev) {
+        fetchWeather(DEFAULT_COORDS.lat, DEFAULT_COORDS.lng).then(setWeather).catch(() => {});
+        return DEFAULT_COORDS;
       }
-    }, 100);
-
-    // Remove highlight after 3 seconds
-    setTimeout(() => {
-      setHighlightedHistoryId(null);
-    }, 3000);
+      return prev;
+    });
   };
 
-  const requestLocation = () => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition((pos) => {
-        const loc = { 
-          lat: pos.coords.latitude, 
-          lng: pos.coords.longitude,
-          accuracy: pos.coords.accuracy
-        };
-        setLocation(loc);
-        fetchWeather(loc.lat, loc.lng).then(setWeather);
-      }, (err) => {
-        console.error("Geolocation error:", err);
-      }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+  const requestLocation = (highAccuracy = false) => {
+    if (typeof window !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const loc = { 
+            lat: pos.coords.latitude, 
+            lng: pos.coords.longitude,
+            accuracy: pos.coords.accuracy
+          };
+          setLocation(loc);
+          fetchWeather(loc.lat, loc.lng).then(setWeather).catch(() => {});
+        },
+        (err) => {
+          if (highAccuracy && (err.code === 3 || err.code === 2)) {
+            navigator.geolocation.getCurrentPosition(
+              (pos) => {
+                const loc = { 
+                  lat: pos.coords.latitude, 
+                  lng: pos.coords.longitude,
+                  accuracy: pos.coords.accuracy
+                };
+                setLocation(loc);
+                fetchWeather(loc.lat, loc.lng).then(setWeather).catch(() => {});
+              },
+              () => {
+                applyFallbackLocation();
+              },
+              { enableHighAccuracy: false, timeout: 6000, maximumAge: 300000 }
+            );
+          } else {
+            applyFallbackLocation();
+          }
+        },
+        { enableHighAccuracy: highAccuracy, timeout: 8000, maximumAge: 60000 }
+      );
+    } else {
+      applyFallbackLocation();
     }
   };
 
+  // Initial Data Fetching from Local SQLite & Services
   useEffect(() => {
-    let unsubscribe = () => {};
-    
-    if (isFirebaseConfigured && auth) {
-      unsubscribe = onAuthStateChanged(auth, (user) => {
-        setUser(user);
-        if (user) {
-          // Load history from Firestore if user is logged in
-          loadUserHistory(user.uid);
-        } else {
-          // Load from local API for anonymous users
-          fetch('/api/history?userId=anonymous')
-            .then(res => res.ok ? res.json() : [])
-            .then(localHistory => {
-              if (localHistory.length > 0) {
-                setHistory(localHistory.sort((a: any, b: any) => b.timestamp - a.timestamp));
-              } else {
-                // Fallback to local storage
-                const savedHistory = localStorage.getItem('plant_health_history');
-                if (savedHistory) setHistory(JSON.parse(savedHistory));
-              }
-            })
-            .catch(() => {
-              const savedHistory = localStorage.getItem('plant_health_history');
-              if (savedHistory) setHistory(JSON.parse(savedHistory));
-            });
+    registerServiceWorker();
+    requestLocation(false);
+
+    // Load initial agricultural datasets
+    fetch('/api/fields')
+      .then(res => res.json())
+      .then(data => { if (Array.isArray(data)) setFields(data); })
+      .catch(console.warn);
+
+    fetch('/api/missions')
+      .then(res => res.json())
+      .then(data => { if (Array.isArray(data)) setMissions(data); })
+      .catch(console.warn);
+
+    fetch('/api/recommendations')
+      .then(res => res.json())
+      .then(data => { if (Array.isArray(data)) setRecommendations(data); })
+      .catch(console.warn);
+
+    fetch('/api/notifications')
+      .then(res => res.json())
+      .then(data => { if (Array.isArray(data)) setNotifications(data); })
+      .catch(console.warn);
+
+    fetch('/api/history')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setHistory(data);
+        }
+      })
+      .catch((err) => {
+        console.warn("Failed to load history from server, falling back to localStorage:", err);
+        const saved = localStorage.getItem('plant_health_history');
+        if (saved) {
+          try { setHistory(JSON.parse(saved)); } catch (e) {}
         }
       });
-    } else {
-      // Fallback for local storage if Firebase is not configured
-      const savedHistory = localStorage.getItem('plant_health_history');
-      if (savedHistory) setHistory(JSON.parse(savedHistory));
+  }, []);
+
+  // Firebase auth state subscription
+  useEffect(() => {
+    let unsubscribe = () => {};
+    if (isFirebaseConfigured && auth) {
+      unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+        setUser(currentUser);
+        if (currentUser) {
+          loadFirebaseHistory(currentUser.uid);
+        }
+      });
     }
-    
-    requestLocation();
     return () => unsubscribe();
   }, []);
 
-  const loadUserHistory = async (uid: string) => {
-    // Try local API first
-    try {
-      const response = await fetch(`/api/history?userId=${uid}`);
-      if (response.ok) {
-        const localHistory = await response.json();
-        if (localHistory.length > 0) {
-          setHistory(localHistory.sort((a: any, b: any) => b.timestamp - a.timestamp));
-          return; // If we have local history, we can stop here or merge
-        }
-      }
-    } catch (err) {
-      console.error("Error loading local history:", err);
-    }
-
+  const loadFirebaseHistory = async (uid: string) => {
     if (!isFirebaseConfigured || !db) return;
     try {
       const q = query(collection(db, 'history'), where('userId', '==', uid));
@@ -264,44 +294,219 @@ export default function App() {
       if (userHistory.length > 0) {
         const sortedHistory = userHistory.sort((a, b) => b.timestamp - a.timestamp);
         setHistory(sortedHistory);
-        
-        // Sync to local API
-        for (const item of sortedHistory) {
-          fetch('/api/history', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...item, userId: uid })
-          }).catch(console.error);
-        }
       }
     } catch (err) {
-      console.error("Error loading history from Firebase:", err);
+      console.warn("Notice loading history from Firebase:", err);
     }
   };
 
-  const saveToHistory = async (result: AnalysisResult) => {
-    const newHistory = [result, ...history];
+  const saveToHistory = async (newResult: AnalysisResult) => {
+    const newHistory = [newResult, ...history];
     setHistory(newHistory);
-    
-    // Always save to local API if possible
-    const userId = user?.uid || 'anonymous';
-    fetch('/api/history', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...result, userId })
-    }).catch(console.error);
+    localStorage.setItem('plant_health_history', JSON.stringify(newHistory));
 
     if (user && isFirebaseConfigured && db) {
       try {
-        await setDoc(doc(db, 'history', result.id), {
-          ...result,
+        await setDoc(doc(db, 'history', newResult.id), {
+          ...newResult,
           userId: user.uid
         });
       } catch (err) {
         console.error("Error saving to Firestore:", err);
       }
-    } else {
-      localStorage.setItem('plant_health_history', JSON.stringify(newHistory));
+    }
+  };
+
+  // Domain CRUD Operations
+  const handleAddField = async (fieldData: Partial<Field>) => {
+    try {
+      const fieldId = fieldData.id || `field-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      const polygon = Array.isArray(fieldData.polygon) ? fieldData.polygon : [];
+      
+      let center = fieldData.center;
+      if ((!center || !Array.isArray(center) || center.length < 2) && polygon.length > 0) {
+        const latAvg = polygon.reduce((acc, pt) => acc + (pt[0] || 0), 0) / polygon.length;
+        const lngAvg = polygon.reduce((acc, pt) => acc + (pt[1] || 0), 0) / polygon.length;
+        center = [latAvg, lngAvg];
+      } else if (!center || !Array.isArray(center) || center.length < 2) {
+        center = [0, 0];
+      }
+
+      const payload = {
+        ...fieldData,
+        id: fieldId,
+        name: fieldData.name?.trim() || 'Новое поле',
+        polygon,
+        center,
+        organizationId: fieldData.organizationId || (user?.uid ? `user-${user.uid.slice(0, 8)}` : 'user-farm')
+      };
+
+      let token: string | null = null;
+      if (user) {
+        try {
+          token = await user.getIdToken();
+        } catch (e) {
+          console.warn("Could not get Firebase token for field creation:", e);
+        }
+      }
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json'
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      console.log("[handleAddField] Sending field to /api/fields:", payload);
+
+      const res = await fetch('/api/fields', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || errJson.message || `Server responded with status ${res.status}`);
+      }
+
+      const created = await res.json();
+      console.log("[handleAddField] Field successfully created on server:", created);
+      setFields(prev => [created, ...prev.filter(f => f.id !== created.id)]);
+      return created;
+    } catch (err: any) {
+      console.error("[handleAddField] Error creating field:", err);
+      throw err;
+    }
+  };
+
+  const handleUpdateField = async (id: string, updates: Partial<Field>) => {
+    try {
+      let token: string | null = null;
+      if (user) {
+        try { token = await user.getIdToken(); } catch {}
+      }
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch(`/api/fields/${id}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify(updates)
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setFields(prev => prev.map(f => f.id === id ? { ...f, ...updates, ...updated } : f));
+      }
+    } catch (err) {
+      console.error("Failed to update field:", err);
+    }
+  };
+
+  const handleDeleteField = async (id: string) => {
+    try {
+      let token: string | null = null;
+      if (user) {
+        try { token = await user.getIdToken(); } catch {}
+      }
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch(`/api/fields/${id}`, { method: 'DELETE', headers });
+      if (res.ok) {
+        setFields(prev => prev.filter(f => f.id !== id));
+      }
+    } catch (err) {
+      console.error("Failed to delete field:", err);
+    }
+  };
+
+  const handleCreateMission = async (missionData: Partial<DroneMission>) => {
+    const res = await fetch('/api/missions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(missionData)
+    });
+    if (res.ok) {
+      const created = await res.json();
+      setMissions(prev => [created, ...prev]);
+    }
+  };
+
+  const handleUpdateMissionStatus = async (id: string, status: DroneMission['status'], progress?: number) => {
+    const res = await fetch(`/api/missions/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, progress })
+    });
+    if (res.ok) {
+      const updated = await res.json();
+      setMissions(prev => prev.map(m => m.id === id ? updated : m));
+    }
+  };
+
+  const handleDeleteMission = async (id: string) => {
+    const res = await fetch(`/api/missions/${id}`, { method: 'DELETE' });
+    if (res.ok) {
+      setMissions(prev => prev.filter(m => m.id !== id));
+    }
+  };
+
+  const handleUpdateRecommendationStatus = async (id: string, status: Recommendation['status']) => {
+    const res = await fetch(`/api/recommendations/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status })
+    });
+    if (res.ok) {
+      const updated = await res.json();
+      setRecommendations(prev => prev.map(r => r.id === id ? updated : r));
+    }
+  };
+
+  const handleCreateRecommendation = async (recData: Partial<Recommendation>) => {
+    const res = await fetch('/api/recommendations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(recData)
+    });
+    if (res.ok) {
+      const created = await res.json();
+      setRecommendations(prev => [created, ...prev]);
+    }
+  };
+
+  const handleMarkNotificationRead = async (id: string) => {
+    const res = await fetch(`/api/notifications/${id}/read`, { method: 'PATCH' });
+    if (res.ok) {
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+    }
+  };
+
+  const handleMarkAllNotificationsRead = async () => {
+    const res = await fetch('/api/notifications/mark-all-read', { method: 'POST' });
+    if (res.ok) {
+      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+    }
+  };
+
+  const handleSubmitReview = async (reviewData: Partial<AgronomistReview>) => {
+    const res = await fetch('/api/reviews', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(reviewData)
+    });
+    if (res.ok) {
+      const created = await res.json();
+      if (reviewModalAnalysis) {
+        const updatedAnalysis = { ...reviewModalAnalysis, agronomistReview: created };
+        setResult(updatedAnalysis);
+        setHistory(prev => prev.map(h => h.id === updatedAnalysis.id ? updatedAnalysis : h));
+      }
+      fetch('/api/notifications')
+        .then(r => r.json())
+        .then(data => { if (Array.isArray(data)) setNotifications(data); })
+        .catch(() => {});
     }
   };
 
@@ -400,8 +605,6 @@ export default function App() {
     if (itemsToExport.length === 0) return;
 
     const doc = new jsPDF();
-    
-    // Add title
     doc.setFontSize(20);
     doc.text(t.title + ' - ' + t.history, 14, 22);
     doc.setFontSize(11);
@@ -432,7 +635,7 @@ export default function App() {
       body: tableRows,
       startY: 40,
       theme: 'grid',
-      headStyles: { fillColor: [45, 90, 39] }, // Sage green-ish
+      headStyles: { fillColor: [45, 90, 39] },
       styles: { fontSize: 8 },
     });
 
@@ -465,7 +668,6 @@ export default function App() {
     setIsAnalyzing(true);
     setError(null);
     try {
-      // Refresh weather before analysis if location is available
       let currentWeather = weather;
       if (location) {
         currentWeather = await fetchWeather(location.lat, location.lng);
@@ -492,8 +694,24 @@ export default function App() {
 
       setResult(analysisResult);
       saveToHistory(analysisResult);
-    } catch (err) {
-      setError(lang === 'ru' ? 'Не удалось проанализировать фото. Попробуйте еще раз.' : lang === 'kz' ? 'Фотоны талдау мүмкін болмады. Қайталап көріңіз.' : 'Failed to analyze photo. Please try again.');
+
+      if (analysisResult.issueType !== 'healthy') {
+        triggerPushNotification(
+          lang === 'ru' ? 'Обнаружена проблема!' : lang === 'kz' ? 'Мәселе табылды!' : 'Problem detected!',
+          lang === 'ru' 
+            ? `${analysisResult.diagnosis}. Угроза: ${analysisResult.severity}` 
+            : lang === 'kz' 
+              ? `${analysisResult.diagnosis}. Қауіп: ${analysisResult.severity}` 
+              : `${analysisResult.diagnosis}. Threat: ${analysisResult.severity}`,
+          '/'
+        );
+      }
+    } catch (err: any) {
+      if (err.message === 'SERVER_OVERLOAD') {
+        setError(lang === 'ru' ? 'ИИ перегружен. Пожалуйста, попробуйте еще раз через минуту.' : lang === 'kz' ? 'ИИ шамадан тыс жүктелген. Бір минуттан кейін қайталап көріңіз.' : 'AI is overloaded. Please try again in a minute.');
+      } else {
+        setError(lang === 'ru' ? 'Не удалось проанализировать фото. Попробуйте еще раз.' : lang === 'kz' ? 'Фотоны талдау мүмкін болмады. Қайталап көріңіз.' : 'Failed to analyze photo. Please try again.');
+      }
     } finally {
       setIsAnalyzing(false);
     }
@@ -510,967 +728,855 @@ export default function App() {
     try {
       const response = await chatWithAssistant([...chatMessages, newUserMessage], result || undefined, lang, currency, unitSystem);
       setChatMessages(prev => [...prev, { role: 'model', text: response }]);
-    } catch (err) {
-      setChatMessages(prev => [...prev, { role: 'model', text: lang === 'ru' ? 'Ошибка связи с ассистентом.' : lang === 'kz' ? 'Көмекшімен байланыс қатесі.' : 'Error communicating with assistant.' }]);
+    } catch (err: any) {
+      const errorMsg = err.message === 'SERVER_OVERLOAD'
+        ? (lang === 'ru' ? 'Ассистент временно недоступен из-за высокой нагрузки.' : lang === 'kz' ? 'Көмекші жоғары жүктемеге байланысты уақытша қолжетімсіз.' : 'Assistant is temporarily unavailable due to high load.')
+        : (lang === 'ru' ? 'Ошибка связи с ассистентом.' : lang === 'kz' ? 'Көмекшімен байланыс қатесі.' : 'Error communicating with assistant.');
+      setChatMessages(prev => [...prev, { role: 'model', text: errorMsg }]);
     } finally {
       setIsChatLoading(false);
     }
   };
 
-  const reset = () => {
-    setImage(null);
-    setResult(null);
-    setError(null);
+  const handleDiscussWithAI = (currentResult?: AnalysisResult | null) => {
+    // 1. Resolve analysis object: passed explicitly, or from result state, or latest history item
+    const analysis = currentResult || result || (history && history.length > 0 ? history[0] : null);
+
+    if (analysis) {
+      setResult(analysis);
+    }
+
+    const cultureName = analysis
+      ? (CULTURES.find(c => c.id === analysis.culture)?.name || (t.cultures as any)?.[analysis.culture] || analysis.culture || 'Растение')
+      : 'Растение';
+    const diagnosis = analysis?.diagnosis || 'Не определено';
+
+    const promptMessage = analysis
+      ? (lang === 'kz'
+          ? `Мен жаңа ғана фотоны талдадым. Диагноз: ${diagnosis}. Дақыл: ${cultureName}. Осы ауру туралы толығырақ айтып беріңіз және оны қалай алдын алуға болады?`
+          : lang === 'en'
+          ? `I just analyzed a photo. Diagnosis: ${diagnosis}. Crop: ${cultureName}. Please tell me more about this disease and how to prevent it.`
+          : `Я только что проанализировал фото. Диагноз: ${diagnosis}. Культура: ${cultureName}. Расскажи подробнее об этой болезни и как ее предотвратить.`)
+      : (lang === 'kz'
+          ? `Сәлеметсіз бе! Маған өсімдік аурулары мен егін қорғау шаралары бойынша агрономиялық кеңес беріңізші.`
+          : lang === 'en'
+          ? `Hello! Please provide me with agronomic advice on crop protection and disease prevention.`
+          : `Здравствуйте! Проконсультируйте меня по защите посевов и диагностике болезней растений.`);
+
+    const newUserMessage: ChatMessage = { role: 'user', text: promptMessage };
+    
+    // Clear any input text and immediately append the user message
+    setChatInput('');
+    setChatMessages(prev => [...prev, newUserMessage]);
+    setActiveTab('assistant');
+    setIsChatLoading(true);
+
+    // Call chat API with new message and context
+    chatWithAssistant([...chatMessages, newUserMessage], analysis || undefined, lang, currency, unitSystem)
+      .then(reply => {
+        setChatMessages(prev => [...prev, { role: 'model', text: reply }]);
+      })
+      .catch((err: any) => {
+        console.error("AI Assistant error:", err);
+        const errorMsg = err.message === 'SERVER_OVERLOAD'
+          ? (lang === 'ru' ? 'Ассистент временно недоступен из-за высокой нагрузки.' : lang === 'kz' ? 'Көмекші жоғары жүктемеге байланысты уақытша қолжетімсіз.' : 'Assistant is temporarily unavailable due to high load.')
+          : (lang === 'ru' ? 'Ошибка связи с ассистентом.' : lang === 'kz' ? 'Көмекшімен байланыс қатесі.' : 'Error communicating with assistant.');
+        setChatMessages(prev => [...prev, { role: 'model', text: errorMsg }]);
+      })
+      .finally(() => {
+        setIsChatLoading(false);
+      });
   };
 
   return (
-    <div className="min-h-screen pb-32 sm:pb-20 selection:bg-brand-200 selection:text-brand-800 overflow-x-hidden w-full">
-      {/* Navigation Header */}
-      <header className="sticky top-0 z-[100] px-4 py-4 sm:px-8">
-        <nav className="max-w-7xl mx-auto glass-card rounded-[24px] sm:rounded-[32px] px-3 sm:px-6 py-2 sm:py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2 sm:gap-3 group cursor-pointer" onClick={() => setActiveTab('analyze')}>
-            <div className="w-8 h-8 sm:w-10 sm:h-10 bg-brand-600 rounded-xl sm:rounded-2xl flex items-center justify-center shadow-lg shadow-brand-600/20 group-hover:scale-105 transition-transform">
-              <Sprout className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
-            </div>
-            <div>
-              <h1 className="text-base sm:text-lg font-serif font-semibold text-brand-800 leading-none mb-1 tracking-tight">AI Agronomist</h1>
-              <p className="hidden sm:block text-[8px] font-bold text-brand-300 uppercase tracking-[0.2em]">v2.1 • Smart Farming</p>
-            </div>
-          </div>
+    <div className="flex h-screen w-screen overflow-hidden bg-[#F7F9F6] selection:bg-emerald-200 selection:text-emerald-900 font-sans">
+      {/* Desktop & Collapsible Sidebar */}
+      <div className="hidden lg:block shrink-0">
+        <Sidebar
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          lang={lang}
+          userRole={userRole}
+          collapsed={sidebarCollapsed}
+          setCollapsed={setSidebarCollapsed}
+          unreadNotifsCount={unreadNotifsCount}
+          user={user}
+        />
+      </div>
 
-          <div className="hidden md:flex items-center gap-1 bg-brand-100/50 p-1 rounded-2xl border border-brand-100/50">
-            {[
-              { id: 'analyze', icon: Camera, label: t.analyze },
-              { id: 'history', icon: History, label: t.history },
-              { id: 'map', icon: MapIcon, label: t.map },
-              { id: 'assistant', icon: MessageSquare, label: t.assistant }
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as Tab)}
-                className={cn(
-                  "flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest transition-all duration-300",
-                  activeTab === tab.id 
-                    ? "bg-white text-brand-800 shadow-sm" 
-                    : "text-brand-300 hover:text-brand-600 hover:bg-white/50"
-                )}
+      {/* Mobile Drawer Overlay */}
+      <AnimatePresence>
+        {mobileSidebarOpen && (
+          <div className="fixed inset-0 z-50 lg:hidden flex">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setMobileSidebarOpen(false)}
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ x: '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '-100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="relative z-10 w-72 h-full bg-[#163D2B]"
+            >
+              <Sidebar
+                activeTab={activeTab}
+                setActiveTab={(tab) => {
+                  setActiveTab(tab);
+                  setMobileSidebarOpen(false);
+                }}
+                lang={lang}
+                userRole={userRole}
+                collapsed={false}
+                setCollapsed={() => {}}
+                unreadNotifsCount={unreadNotifsCount}
+                user={user}
+              />
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+        <TopBar
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          lang={lang}
+          setLang={setLang}
+          userRole={userRole}
+          setUserRole={setUserRole}
+          unreadNotifsCount={unreadNotifsCount}
+          onOpenNotifications={() => setActiveTab('notifications')}
+          onOpenSettings={() => setShowSettingsModal(true)}
+          onToggleMobileSidebar={() => setMobileSidebarOpen(true)}
+          userName={user?.displayName || user?.email?.split('@')[0] || (lang === 'kz' ? 'Фермер' : lang === 'en' ? 'Farmer' : 'Фермер')}
+          isAuthenticated={Boolean(user)}
+          onOpenAuth={() => setShowAuthModal(true)}
+        />
+
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto pb-24 lg:pb-12">
+          <AnimatePresence mode="wait">
+            {/* 1. DASHBOARD */}
+            {activeTab === 'dashboard' && (
+              <motion.div
+                key="dashboard"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
               >
-                <tab.icon className={cn("w-4 h-4", activeTab === tab.id ? "text-brand-600" : "text-brand-200")} />
-                {tab.label}
-              </button>
-            ))}
-          </div>
+                <DashboardView
+                  fields={displayedFields}
+                  missions={displayedMissions}
+                  analyses={displayedHistory}
+                  recommendations={displayedRecommendations}
+                  notifications={displayedNotifications}
+                  setActiveTab={setActiveTab}
+                  lang={lang}
+                  onSelectField={(f) => {
+                    setSelectedFieldForMap(f);
+                    setActiveTab('map');
+                  }}
+                  onSelectAnalysis={(a) => {
+                    setResult(a);
+                    setActiveTab('analysis');
+                  }}
+                />
+              </motion.div>
+            )}
 
-          <div className="flex items-center gap-1.5 sm:gap-3">
-            <div className="flex items-center gap-1 bg-brand-100/50 p-1 rounded-xl border border-brand-100/50">
-              {(['ru', 'kz', 'en'] as Language[]).map((l) => (
-                <button
-                  key={l}
-                  onClick={() => setLang(l)}
-                  className={cn(
-                    "w-7 h-7 sm:w-8 sm:h-8 rounded-lg text-[9px] sm:text-[10px] font-bold uppercase transition-all",
-                    lang === l ? "bg-white text-brand-800 shadow-sm" : "text-brand-300 hover:text-brand-600"
-                  )}
-                >
-                  {l}
-                </button>
-              ))}
-            </div>
-            
-            <div className="hidden sm:block h-8 w-px bg-brand-100 mx-1" />
-            
-            <button 
-              onClick={() => setShowSettings(true)}
-              className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-white border border-brand-100 flex items-center justify-center text-brand-300 hover:text-brand-600 hover:border-brand-300 transition-all shadow-sm shrink-0"
-              title={t.settings}
-            >
-              <SettingsIcon className="w-4 h-4 sm:w-5 sm:h-5" />
-            </button>
-          </div>
-        </nav>
-      </header>
+            {/* 2. FIELDS & PLOTS */}
+            {activeTab === 'fields' && (
+              <motion.div
+                key="fields"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+              >
+                <FieldsView
+                  fields={fields}
+                  lang={lang}
+                  onAddField={handleAddField}
+                  onUpdateField={handleUpdateField}
+                  onDeleteField={handleDeleteField}
+                  setActiveTab={setActiveTab}
+                  onSelectFieldOnMap={(f) => {
+                    setSelectedFieldForMap(f);
+                    setActiveTab('map');
+                  }}
+                  userLocation={location || null}
+                  demoDataEnabled={demoDataEnabled}
+                />
+              </motion.div>
+            )}
 
-      <main className="flex-1 max-w-6xl mx-auto w-full px-3 sm:px-4 py-6 sm:py-8 overflow-x-hidden">
-        <AnimatePresence mode="wait">
-          {activeTab === 'analyze' && (
-            <motion.div 
-              key="analyze"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start"
-            >
-              {/* Left Column: Input & Controls */}
-              <div className="lg:col-span-4 space-y-8">
-                <section className="soft-card p-8">
-                  <div className="flex items-center justify-between mb-8">
-                    <h2 className="text-xl font-serif font-medium text-brand-800">{t.newAnalysis}</h2>
-                    <div className="w-10 h-10 rounded-full bg-brand-50 flex items-center justify-center">
-                      <Camera className="w-5 h-5 text-brand-600" />
-                    </div>
-                  </div>
+            {/* 3. AGRO MAP (GIS) */}
+            {activeTab === 'map' && (
+              <motion.div
+                key="map"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+              >
+                <AgroMapView
+                  fields={displayedFields}
+                  analyses={displayedHistory}
+                  missions={displayedMissions}
+                  lang={lang}
+                  selectedField={selectedFieldForMap}
+                  onSelectAnalysis={(a) => {
+                    setResult(a);
+                    setActiveTab('analysis');
+                  }}
+                />
+              </motion.div>
+            )}
 
-                  <div className="mt-8 space-y-6">
-                    <div>
-                      <label className="text-[10px] font-bold text-brand-300 uppercase tracking-[0.2em] mb-3 block">{t.cultureLabel}</label>
-                      <div className="grid grid-cols-2 gap-2">
-                        {CULTURES.map((c) => (
-                          <button
-                            key={c.id}
-                            onClick={() => setCulture(c.id as PlantCulture)}
-                            className={cn(
-                              "flex items-center gap-2 px-4 py-3 rounded-2xl text-xs font-bold transition-all border",
-                              culture === c.id 
-                                ? "bg-brand-800 text-white border-brand-800 shadow-lg shadow-brand-800/10" 
-                                : "bg-white text-brand-600 border-brand-100 hover:border-brand-300"
-                            )}
-                          >
-                            <span className="text-lg">{c.icon}</span>
-                            <span className="truncate">{(t.cultures as any)[c.id]}</span>
-                          </button>
-                        ))}
+            {/* 5. IMAGE ANALYSIS WORKFLOW */}
+            {activeTab === 'analysis' && (
+              <motion.div 
+                key="analysis"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start"
+              >
+                {/* Left Column: Input & Controls */}
+                <div className="lg:col-span-4 space-y-6">
+                  <section className="bg-white p-6 sm:p-8 rounded-[32px] border border-slate-200 shadow-sm">
+                    <div className="flex items-center justify-between mb-6">
+                      <h2 className="text-xl font-serif font-bold text-[#17251D]">{t.newAnalysis}</h2>
+                      <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-[#2F7D4A] flex items-center justify-center">
+                        <Camera className="w-5 h-5" />
                       </div>
                     </div>
 
-                    {culture === 'other' && (
-                      <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: 'auto' }}
-                      >
-                        <label className="text-[10px] font-bold text-brand-300 uppercase tracking-[0.2em] mb-3 block">{t.customCulture}</label>
-                        <input 
-                          type="text"
-                          value={customCultureName}
-                          onChange={(e) => setCustomCultureName(e.target.value)}
-                          placeholder={t.enterCulture}
-                          className="w-full px-5 py-4 bg-white border border-brand-100 rounded-2xl text-sm focus:ring-2 focus:ring-brand-600 focus:border-transparent outline-none transition-all"
-                        />
-                      </motion.div>
-                    )}
-
-                    <div>
-                      <div className="flex items-center justify-between mb-3">
-                        <label className="text-[10px] font-bold text-brand-300 uppercase tracking-[0.2em]">{t.ageDays}</label>
-                        <span className="text-xs font-bold text-brand-800">{ageDays} {t.days}</span>
-                      </div>
-                      <input 
-                        type="range" 
-                        min="1" 
-                        max="180" 
-                        value={ageDays} 
-                        onChange={(e) => setAgeDays(parseInt(e.target.value))}
-                        className="w-full h-1.5 bg-brand-100 rounded-full appearance-none cursor-pointer accent-brand-600"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Image Upload Area */}
-                  <div 
-                    onClick={() => fileInputRef.current?.click()}
-                    className={cn(
-                      "relative aspect-square rounded-[32px] border-2 border-dashed transition-all cursor-pointer overflow-hidden group",
-                      image ? "border-brand-600" : "border-brand-100 hover:border-brand-300 bg-brand-50/30"
-                    )}
-                  >
-                    {image ? (
-                      <>
-                        <img src={image} alt="Preview" className="w-full h-full object-cover" />
-                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                          <div className="bg-white/20 backdrop-blur-md p-4 rounded-full border border-white/30">
-                            <RefreshCcw className="w-6 h-6 text-white" />
-                          </div>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center">
-                        <div className="w-16 h-16 bg-white rounded-3xl shadow-sm flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                          <Upload className="w-8 h-8 text-brand-200" />
-                        </div>
-                        <p className="text-sm font-bold text-brand-800 uppercase tracking-widest mb-2">{t.uploadPhoto}</p>
-                        <p className="text-xs text-brand-300 font-medium leading-relaxed">{t.uploadInstructions}</p>
-                      </div>
-                    )}
-                  </div>
-                  <input 
-                    type="file" 
-                    ref={fileInputRef} 
-                    onChange={handleImageUpload} 
-                    accept="image/*" 
-                    className="hidden" 
-                  />
-
-                  <button 
-                    onClick={handleAnalyze}
-                    disabled={isAnalyzing}
-                    className={cn(
-                      "w-full mt-10 py-5 rounded-[24px] font-bold uppercase tracking-[0.2em] text-xs flex items-center justify-center gap-3 transition-all shadow-xl",
-                      isAnalyzing 
-                        ? "bg-brand-100 text-brand-300 cursor-not-allowed" 
-                        : "bg-brand-800 text-white hover:bg-brand-700 active:scale-[0.98] shadow-brand-800/20"
-                    )}
-                  >
-                    {isAnalyzing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Maximize className="w-4 h-4" />}
-                    {isAnalyzing ? t.analyzing : t.runAnalysis}
-                  </button>
-                </section>
-              </div>
-
-              {/* Results */}
-              <div className="lg:col-span-8">
-                {result ? (
-                  <div className="space-y-6">
-                    {/* Main Result Header - Bento Style */}
-                    <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-                      {/* Diagnosis & Severity */}
-                      <div className="md:col-span-8 bg-white rounded-[32px] p-8 shadow-sm border border-brand-100 relative overflow-hidden group">
-                        <div className={cn(
-                          "absolute top-0 right-0 w-32 h-32 -mr-8 -mt-8 rounded-full blur-3xl opacity-10 transition-colors duration-500",
-                          result.severity === 'high' ? "bg-red-500" : result.severity === 'medium' ? "bg-orange-500" : "bg-emerald-500"
-                        )} />
-                        
-                        <div className="relative z-10">
-                          <div className="flex items-center gap-3 mb-8">
-                            <div className={cn(
-                              "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-white shadow-sm",
-                              result.severity === 'high' ? "bg-red-500" : result.severity === 'medium' ? "bg-orange-500" : "bg-emerald-500"
-                            )}>
-                              {result.severity === 'high' ? t.high : result.severity === 'medium' ? t.medium : t.low}
-                            </div>
-                            <div className="h-px flex-1 bg-brand-100/50" />
-                            <div className="flex items-center gap-2 text-brand-300">
-                              <span className="text-[10px] font-bold uppercase tracking-widest">{t.confidence}</span>
-                              <div className="w-24 h-1 bg-brand-50 rounded-full overflow-hidden border border-brand-100">
-                                <motion.div 
-                                  initial={{ width: 0 }}
-                                  animate={{ width: `${result.confidence * 100}%` }}
-                                  className={cn(
-                                    "h-full rounded-full",
-                                    result.confidence > 0.8 ? "bg-emerald-500" : result.confidence > 0.5 ? "bg-orange-500" : "bg-red-500"
-                                  )}
-                                />
-                              </div>
-                              <span className="text-[10px] font-bold text-brand-600">{Math.round(result.confidence * 100)}%</span>
-                            </div>
-                          </div>
-
-                          <h3 className="text-4xl sm:text-5xl font-serif font-medium text-slate-900 mb-6 leading-tight tracking-tight">
-                            {result.diagnosis}
-                          </h3>
-
-                          <div className="flex flex-wrap gap-2">
-                            <div className="flex items-center gap-2 px-4 py-2 bg-brand-800 text-white rounded-2xl shadow-lg shadow-brand-800/10">
-                              {result.issueType === 'pest' ? <Bug className="w-4 h-4" /> : <ShieldAlert className="w-4 h-4" />}
-                              <span className="text-[10px] font-bold uppercase tracking-widest">
-                                {result.issueType === 'pest' ? t.pest : 
-                                 result.issueType === 'disease' ? t.disease : 
-                                 result.issueType === 'healthy' ? t.healthy : t.other}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2 px-4 py-2 bg-white border border-brand-100 text-brand-600 rounded-2xl shadow-sm">
-                              <Sprout className="w-4 h-4 text-brand-300" />
-                              <span className="text-[10px] font-bold uppercase tracking-widest">
-                                {CULTURES.find(c => c.id === result.culture)?.name || result.customCultureName || result.culture}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2 px-4 py-2 bg-white border border-brand-100 text-brand-600 rounded-2xl shadow-sm">
-                              <RefreshCcw className="w-4 h-4 text-brand-300" />
-                              <span className="text-[10px] font-bold uppercase tracking-widest">
-                                {result.ageDays} {t.days}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Weather Context Widget */}
-                      <div className="md:col-span-4 bg-brand-800 rounded-[32px] p-8 text-white flex flex-col justify-between relative overflow-hidden">
-                        <div className="absolute top-0 right-0 p-4 opacity-5">
-                          <CloudSun className="w-24 h-24" />
-                        </div>
-                        
-                        <div className="relative z-10">
-                          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-300 mb-8">{t.weather}</p>
-                          {result.weatherContext ? (
-                            <div className="space-y-8">
-                              <div className="flex items-end gap-2">
-                                <span className="text-5xl font-serif font-medium">{result.weatherContext.temp}°</span>
-                                <span className="text-brand-400 text-lg mb-1">C</span>
-                              </div>
-                              <div className="space-y-4">
-                                <div className="flex items-center justify-between text-xs">
-                                  <span className="text-brand-400 uppercase tracking-widest font-bold">{lang === 'ru' ? 'Влажность' : lang === 'kz' ? 'Ылғалдылық' : 'Humidity'}</span>
-                                  <span className="font-bold">{result.weatherContext.humidity}%</span>
-                                </div>
-                                <div className="h-px bg-white/5 w-full" />
-                                <div className="flex items-center justify-between text-xs">
-                                  <span className="text-brand-400 uppercase tracking-widest font-bold">{t.forecast}</span>
-                                  <span className="font-bold">{getWeatherCondition(result.weatherContext.conditionCode)}</span>
-                                </div>
-                              </div>
-                            </div>
-                          ) : (
-                            <p className="text-xs text-brand-400 italic">{t.locating}</p>
-                          )}
-                        </div>
-
-                        <div className="mt-8 pt-6 border-t border-white/5 relative z-10">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center">
-                              <LocateFixed className="w-4 h-4 text-brand-400" />
-                            </div>
-                            <span className="text-[10px] font-bold uppercase tracking-widest text-brand-400">
-                              {result.location ? `${result.location.lat.toFixed(2)}, ${result.location.lng.toFixed(2)}` : 'Location Unknown'}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Economic Impact - Premium Cards */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
-                      <div className="bg-white rounded-[24px] p-5 sm:p-6 border border-brand-100 shadow-sm hover:shadow-md transition-all group">
-                        <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                          <TrendingDown className="w-5 h-5 text-red-400" />
-                        </div>
-                        <p className="text-[9px] font-bold text-brand-300 uppercase tracking-widest mb-2">{t.potentialLoss}</p>
-                        <div className="flex items-baseline gap-1">
-                          <h4 className="text-3xl font-serif font-medium text-slate-900">{result.economicImpact.potentialLossPercentage}</h4>
-                          <span className="text-lg font-bold text-red-400">%</span>
-                        </div>
-                      </div>
-
-                      <div className="bg-white rounded-[24px] p-5 sm:p-6 border border-brand-100 shadow-sm hover:shadow-md transition-all group">
-                        <div className="w-10 h-10 rounded-xl bg-accent-50 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                          <Package className="w-5 h-5 text-accent-600" />
-                        </div>
-                        <p className="text-[9px] font-bold text-brand-300 uppercase tracking-widest mb-2">
-                          {t.weightLoss}
-                        </p>
-                        <div className="flex items-baseline gap-2">
-                          <h4 className="text-3xl font-serif font-medium text-slate-900">{result.economicImpact.estimatedLossWeight}</h4>
-                          <span className="text-[9px] font-bold text-accent-600 uppercase tracking-widest">
-                            {result.unitSystem === 'metric' ? (lang === 'ru' ? 'т/га' : lang === 'kz' ? 'т/га' : 't/ha') : 'bu/ac'}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="bg-brand-800 rounded-[24px] p-5 sm:p-6 shadow-xl shadow-brand-800/10 hover:shadow-brand-800/20 transition-all group">
-                        <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                          <DollarSign className="w-5 h-5 text-emerald-400" />
-                        </div>
-                        <p className="text-[9px] font-bold text-brand-400 uppercase tracking-widest mb-2">
-                          {t.financialLoss}
-                        </p>
-                        <div className="flex items-baseline gap-2">
-                          <h4 className="text-3xl font-serif font-medium text-white">{result.economicImpact.estimatedLossPerArea.toLocaleString()}</h4>
-                          <span className="text-[9px] font-bold text-emerald-400 uppercase tracking-widest">{result.currency}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Recommendations & Advice */}
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
-                      {/* Action List */}
-                      <div className="bg-white rounded-[24px] p-5 sm:p-6 border border-brand-100 shadow-sm">
-                        <div className="flex items-center justify-between mb-6">
-                          <h4 className="text-lg font-serif font-medium text-slate-900 flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-lg bg-brand-50 flex items-center justify-center">
-                              <CheckCircle2 className="w-4 h-4 text-brand-600" />
-                            </div>
-                            {t.actionOptions}
-                          </h4>
-                        </div>
-                        <div className="space-y-2">
-                          {result.recommendations.map((rec, i) => (
-                            <div key={i} className="p-4 bg-brand-50/30 rounded-xl border border-brand-100 hover:border-brand-300 transition-all group">
-                              <div className="flex items-start justify-between mb-3">
-                                <div className={cn(
-                                  "px-1.5 py-0.5 rounded text-[7px] font-bold uppercase tracking-widest text-white",
-                                  rec.costEffectiveness === 'high' ? "bg-emerald-500" : rec.costEffectiveness === 'medium' ? "bg-orange-500" : "bg-red-400"
-                                )}>
-                                  {t.effectiveness}: {rec.costEffectiveness}
-                                </div>
-                                <div className="text-right">
-                                  <span className="text-xs font-bold text-slate-900">
-                                    {rec.estimatedCost.toLocaleString()} {result.currency}
-                                  </span>
-                                  <span className="text-[9px] text-brand-300 font-bold ml-1 uppercase">/{result.unitSystem === 'metric' ? t.ha : 'ac'}</span>
-                                </div>
-                              </div>
-                              <p className="text-xs text-slate-600 font-medium leading-relaxed">{rec.action}</p>
-                            </div>
+                    <div className="space-y-5">
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2.5 block">{t.cultureLabel}</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          {CULTURES.map((c) => (
+                            <button
+                              key={c.id}
+                              onClick={() => setCulture(c.id as PlantCulture)}
+                              className={cn(
+                                "flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all border",
+                                culture === c.id 
+                                  ? "bg-[#163D2B] text-white border-[#163D2B] shadow-md shadow-emerald-950/20" 
+                                  : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
+                              )}
+                            >
+                              <span className="text-base">{c.icon}</span>
+                              <span className="truncate">{(t.cultures as any)[c.id]}</span>
+                            </button>
                           ))}
                         </div>
                       </div>
 
-                      {/* AI Advice */}
-                      <div className="bg-brand-50/50 rounded-[24px] p-5 sm:p-6 border border-brand-100 relative overflow-hidden">
-                        <div className="absolute top-0 right-0 p-6 opacity-5">
-                          <MessageSquare className="w-24 h-24 text-brand-200" />
+                      {culture === 'other' && (
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 block">{t.customCulture}</label>
+                          <input 
+                            type="text"
+                            value={customCultureName}
+                            onChange={(e) => setCustomCultureName(e.target.value)}
+                            placeholder={t.enterCulture}
+                            className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#2F7D4A] outline-none"
+                          />
                         </div>
-                        
-                        <div className="relative z-10">
-                          <div className="flex items-center justify-between mb-6">
-                            <h4 className="text-lg font-serif font-medium text-slate-900 flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center shadow-sm">
-                                <Languages className="w-4 h-4 text-brand-600" />
-                              </div>
-                              {t.agronomistAdvice}
-                            </h4>
-                            <button 
-                              onClick={() => setActiveTab('assistant')}
-                              className="w-8 h-8 rounded-full bg-white flex items-center justify-center text-brand-600 hover:bg-brand-600 hover:text-white transition-all shadow-sm group"
-                            >
-                              <ChevronRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
-                            </button>
+                      )}
+
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{t.ageDays}</label>
+                          <span className="text-xs font-bold text-[#163D2B]">{ageDays} {t.days}</span>
+                        </div>
+                        <input 
+                          type="range" 
+                          min="1" 
+                          max="180" 
+                          value={ageDays} 
+                          onChange={(e) => setAgeDays(parseInt(e.target.value))}
+                          className="w-full h-1.5 bg-slate-200 rounded-full appearance-none cursor-pointer accent-[#2F7D4A]"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Image Upload Area */}
+                    <div 
+                      onClick={() => fileInputRef.current?.click()}
+                      className={cn(
+                        "relative aspect-square rounded-[24px] border-2 border-dashed transition-all cursor-pointer overflow-hidden mt-6 group",
+                        image ? "border-emerald-600" : "border-slate-200 hover:border-slate-300 bg-slate-50/50"
+                      )}
+                    >
+                      {image ? (
+                        <>
+                          <img src={image} alt="Preview" className="w-full h-full object-cover" />
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                            <div className="bg-white/20 backdrop-blur-md p-3 rounded-full border border-white/30 text-white">
+                              <RefreshCcw className="w-6 h-6" />
+                            </div>
                           </div>
-                          
-                          <div className="prose prose-brand max-w-none">
-                            <div className="markdown-body bg-transparent p-0 border-none shadow-none text-slate-600 text-xs leading-relaxed max-h-[200px] overflow-y-auto no-scrollbar">
-                              <Markdown>{result.localizedAdvice}</Markdown>
+                        </>
+                      ) : (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
+                          <div className="w-14 h-14 bg-white rounded-2xl shadow-sm border border-slate-100 flex items-center justify-center mb-4 group-hover:scale-105 transition-transform">
+                            <Upload className="w-7 h-7 text-[#2F7D4A]" />
+                          </div>
+                          <p className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-1">{t.uploadPhoto}</p>
+                          <p className="text-[11px] text-slate-400 font-medium">{t.uploadInstructions}</p>
+                        </div>
+                      )}
+                    </div>
+                    <input 
+                      type="file" 
+                      ref={fileInputRef} 
+                      onChange={handleImageUpload} 
+                      accept="image/*" 
+                      className="hidden" 
+                    />
+
+                    <button 
+                      onClick={handleAnalyze}
+                      disabled={isAnalyzing || !image}
+                      className={cn(
+                        "w-full mt-6 py-4 rounded-2xl font-bold uppercase tracking-wider text-xs flex items-center justify-center gap-2 transition-all shadow-lg shadow-emerald-950/10",
+                        isAnalyzing || !image
+                          ? "bg-slate-200 text-slate-400 cursor-not-allowed" 
+                          : "bg-[#163D2B] text-white hover:bg-[#2F7D4A] active:scale-[0.98]"
+                      )}
+                    >
+                      {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Maximize className="w-4 h-4" />}
+                      {isAnalyzing ? t.analyzing : t.runAnalysis}
+                    </button>
+                  </section>
+                </div>
+
+                {/* Right Column: Error & Diagnostics Result */}
+                <div className="lg:col-span-8 space-y-6">
+                  {error && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="p-5 rounded-2xl bg-red-50 border border-red-200 text-red-700 flex items-start gap-3"
+                    >
+                      <AlertTriangle className="w-5 h-5 shrink-0 text-red-500 mt-0.5" />
+                      <div className="flex-1 text-xs">
+                        <p className="font-bold uppercase tracking-wider mb-1">Ошибка анализа</p>
+                        <p>{error}</p>
+                      </div>
+                      <button onClick={() => setError(null)} className="p-1 text-slate-400 hover:text-slate-600">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </motion.div>
+                  )}
+
+                  {result ? (
+                    <div className="space-y-6">
+                      {/* Main Result Card */}
+                      <div className="bg-white rounded-[32px] p-6 sm:p-8 border border-slate-200 shadow-sm relative overflow-hidden">
+                        <div className="flex items-center justify-between gap-3 mb-6">
+                          <div className="flex items-center gap-2">
+                            <span className={cn(
+                              "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider text-white shadow-sm",
+                              result.severity === 'high' ? "bg-red-500" : result.severity === 'medium' ? "bg-amber-500" : "bg-emerald-500"
+                            )}>
+                              {result.severity === 'high' ? t.high : result.severity === 'medium' ? t.medium : t.low}
+                            </span>
+                            <span className="text-xs font-semibold text-slate-500">
+                              Достоверность: {Math.round(result.confidence * 100)}%
+                            </span>
+                          </div>
+
+                          {/* Agronomist Validation Button */}
+                          {(userRole === 'AGRONOMIST' || userRole === 'ADMIN') && (
+                            <button
+                              onClick={() => setReviewModalAnalysis(result)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 border border-emerald-200 text-[#163D2B] text-xs font-bold rounded-xl hover:bg-emerald-100 transition-colors shadow-sm"
+                            >
+                              <ShieldCheck className="w-4 h-4 text-[#2F7D4A]" />
+                              <span>{result.agronomistReview ? 'Обновить верификацию' : 'Экспертная валидация'}</span>
+                            </button>
+                          )}
+                        </div>
+
+                        <h3 className="text-2xl sm:text-3xl font-serif font-bold text-slate-900 mb-4 leading-tight">
+                          {result.diagnosis}
+                        </h3>
+
+                        {/* Agronomist Stamp if already reviewed */}
+                        {result.agronomistReview && (
+                          <div className="mb-6 p-4 rounded-2xl bg-emerald-50/80 border border-emerald-200">
+                            <div className="flex items-center gap-2 text-[#163D2B] font-bold text-xs uppercase tracking-wider mb-1">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                              <span>Верифицировано главным агрономом: {result.agronomistReview.reviewerName}</span>
+                            </div>
+                            <p className="text-xs text-slate-700 italic mb-2">"{result.agronomistReview.comments}"</p>
+                            {result.agronomistReview.recommendations && (
+                              <p className="text-xs text-emerald-900 font-medium"><b>Предписание:</b> {result.agronomistReview.recommendations}</p>
+                            )}
+                          </div>
+                        )}
+
+                        <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100">
+                          <div className="flex flex-wrap gap-2">
+                            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-700 rounded-xl text-xs font-medium">
+                              {result.issueType === 'pest' ? <Bug className="w-3.5 h-3.5" /> : <ShieldAlert className="w-3.5 h-3.5" />}
+                              <span>{result.issueType === 'pest' ? t.pest : result.issueType === 'disease' ? t.disease : t.healthy}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-700 rounded-xl text-xs font-medium">
+                              <Sprout className="w-3.5 h-3.5" />
+                              <span>{CULTURES.find(c => c.id === result.culture)?.name || result.culture}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-700 rounded-xl text-xs font-medium">
+                              <span>Возраст: {result.ageDays} дней</span>
                             </div>
                           </div>
 
-                          <div className="mt-6 p-4 bg-white/60 backdrop-blur-sm rounded-xl border border-white/40 flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-brand-600 flex items-center justify-center shrink-0 shadow-lg shadow-brand-600/20">
-                              <MessageSquare className="w-4 h-4 text-white" />
-                            </div>
-                            <div>
-                              <p className="text-[9px] font-bold text-brand-300 uppercase tracking-widest mb-0.5">{t.needHelp}</p>
-                              <button 
-                                onClick={() => setActiveTab('assistant')}
-                                className="text-[10px] font-bold text-brand-700 hover:text-brand-800 transition-colors"
-                              >
-                                {t.discussWithAI}
-                              </button>
-                            </div>
+                          <button
+                            onClick={() => handleDiscussWithAI(result)}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#163D2B] text-white hover:bg-[#1f523a] text-xs font-bold rounded-xl transition-all shadow-sm"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5 text-emerald-300" />
+                            <span>{t.discussWithAI || 'Обсудить с ИИ'}</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Economic Loss Forecast Cards */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">{t.potentialLoss}</p>
+                          <p className="text-2xl font-serif font-bold text-red-600">{result.economicImpact.potentialLossPercentage}%</p>
+                        </div>
+                        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">{t.weightLoss}</p>
+                          <p className="text-2xl font-serif font-bold text-slate-900">
+                            {result.economicImpact.estimatedLossWeight} <span className="text-xs text-slate-500 font-sans">{result.unitSystem === 'metric' ? 'т/га' : 'bu/ac'}</span>
+                          </p>
+                        </div>
+                        <div className="bg-[#163D2B] p-5 rounded-2xl text-white shadow-md shadow-emerald-950/20">
+                          <p className="text-[10px] font-bold text-emerald-300 uppercase tracking-widest mb-1">{t.financialLoss}</p>
+                          <p className="text-2xl font-serif font-bold text-emerald-200">
+                            {result.economicImpact.estimatedLossPerArea.toLocaleString()} <span className="text-xs font-sans">{result.currency}</span>
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Action Plan & Expert Advice */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="bg-white p-6 rounded-[28px] border border-slate-200 shadow-sm space-y-3">
+                          <h4 className="font-serif font-bold text-base text-slate-900 flex items-center gap-2">
+                            <CheckCircle2 className="w-4 h-4 text-[#2F7D4A]" />
+                            <span>{t.actionOptions}</span>
+                          </h4>
+                          <div className="space-y-2.5">
+                            {result.recommendations.map((rec, i) => (
+                              <div key={i} className="p-3.5 bg-slate-50 rounded-xl border border-slate-100">
+                                <div className="flex items-center justify-between text-xs font-semibold mb-1">
+                                  <span className="text-emerald-700">Эффективность: {rec.costEffectiveness}</span>
+                                  <span className="text-slate-700 font-mono">{rec.estimatedCost.toLocaleString()} {result.currency}</span>
+                                </div>
+                                <p className="text-xs text-slate-600">{rec.action}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="bg-white p-6 rounded-[28px] border border-slate-200 shadow-sm space-y-3">
+                          <div className="flex items-center justify-between">
+                            <h4 className="font-serif font-bold text-base text-slate-900 flex items-center gap-2">
+                              <Languages className="w-4 h-4 text-[#2F7D4A]" />
+                              <span>{t.agronomistAdvice}</span>
+                            </h4>
+                            <button
+                              onClick={() => handleDiscussWithAI(result)}
+                              className="text-xs text-[#2F7D4A] font-bold hover:underline flex items-center gap-1"
+                            >
+                              <MessageSquare className="w-3 h-3" />
+                              <span>{t.discussWithAI || 'Обсудить с ИИ'}</span>
+                            </button>
+                          </div>
+                          <div className="text-xs text-slate-600 leading-relaxed max-h-60 overflow-y-auto no-scrollbar">
+                            <Markdown>{result.localizedAdvice}</Markdown>
                           </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                ) : (
-                  <div className="h-full min-h-[500px] flex flex-col items-center justify-center text-center p-12 bg-white/30 rounded-[48px] border-2 border-dashed border-brand-100">
-                    <div className="w-24 h-24 bg-brand-50 rounded-full flex items-center justify-center mb-8 animate-pulse">
-                      <Sprout className="w-12 h-12 text-brand-200" />
+                  ) : (
+                    <div className="bg-white rounded-[32px] border-2 border-dashed border-slate-200 p-12 text-center flex flex-col items-center justify-center min-h-[380px]">
+                      <div className="w-16 h-16 rounded-3xl bg-emerald-50 text-[#2F7D4A] flex items-center justify-center mb-4">
+                        <Sprout className="w-8 h-8" />
+                      </div>
+                      <h3 className="font-serif font-bold text-xl text-slate-800 mb-2">{t.readyToAnalyze}</h3>
+                      <p className="text-xs text-slate-500 max-w-sm">{t.uploadInstructions}</p>
                     </div>
-                    <h3 className="text-2xl font-serif font-medium text-brand-800 mb-3 tracking-tight">{t.readyToAnalyze}</h3>
-                    <p className="text-brand-300 max-w-xs text-sm font-medium">
-                      {t.uploadInstructions}
-                    </p>
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          )}
+                  )}
+                </div>
+              </motion.div>
+            )}
 
-          {activeTab === 'history' && (
-            <motion.div 
-              key="history"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="space-y-8"
-            >
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
-                <div className="flex items-center gap-6">
-                  <h2 className="text-3xl font-serif font-medium text-slate-900 tracking-tight">{t.history}</h2>
+            {/* 6. CROP HEALTH & VEGETATION INDEX (NDVI) */}
+            {activeTab === 'health' && (
+              <motion.div
+                key="health"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+              >
+                <CropHealthView
+                  fields={displayedFields}
+                  analyses={displayedHistory}
+                  lang={lang}
+                  setActiveTab={setActiveTab}
+                  onSelectField={(f) => {
+                    setSelectedFieldForMap(f);
+                    setActiveTab('map');
+                  }}
+                />
+              </motion.div>
+            )}
+
+            {/* 7. WEATHER & AGRO RISKS */}
+            {activeTab === 'weather' && (
+              <motion.div
+                key="weather"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+              >
+                <WeatherRiskView fields={displayedFields} lang={lang} />
+              </motion.div>
+            )}
+
+            {/* 8. YIELD & LOSS FORECAST */}
+            {activeTab === 'yield_loss' && (
+              <motion.div
+                key="yield_loss"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+              >
+                <YieldLossView
+                  fields={displayedFields}
+                  analyses={displayedHistory}
+                  currency={currency}
+                  unitSystem={unitSystem}
+                  lang={lang}
+                />
+              </motion.div>
+            )}
+
+            {/* 9. RECOMMENDATIONS & TASK MANAGEMENT */}
+            {activeTab === 'recommendations' && (
+              <motion.div
+                key="recommendations"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+              >
+                <RecommendationsView
+                  recommendations={displayedRecommendations}
+                  fields={displayedFields}
+                  lang={lang}
+                  onUpdateStatus={handleUpdateRecommendationStatus}
+                  onCreateRecommendation={handleCreateRecommendation}
+                />
+              </motion.div>
+            )}
+
+            {/* 10. AI AGRONOMIST CHAT */}
+            {activeTab === 'assistant' && (
+              <motion.div 
+                key="assistant"
+                initial={{ opacity: 0, scale: 0.99 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.99 }}
+                className="h-[calc(100vh-170px)] flex flex-col bg-white rounded-[32px] shadow-sm border border-slate-200 overflow-hidden"
+              >
+                <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/60">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-[#163D2B] text-white flex items-center justify-center shadow-md shadow-emerald-950/20">
+                      <MessageSquare className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="font-serif font-bold text-base text-slate-900">{t.assistant}</h3>
+                      <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" /> {t.online} • Gemini 1.5 Agronomy Specialist
+                      </p>
+                    </div>
+                  </div>
+                  {result && (
+                    <div className="hidden sm:block text-right">
+                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{t.context}</p>
+                      <p className="text-xs font-bold text-emerald-800">{result.diagnosis}</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 no-scrollbar">
+                  {chatMessages.length === 0 && (
+                    <div className="h-full flex flex-col items-center justify-center text-center space-y-3 p-8">
+                      <div className="w-14 h-14 bg-emerald-50 text-[#2F7D4A] rounded-2xl flex items-center justify-center">
+                        <MessageSquare className="w-7 h-7" />
+                      </div>
+                      <h4 className="text-lg font-serif font-bold text-slate-900">{t.chatPlaceholder}</h4>
+                      <p className="text-xs text-slate-500 max-w-sm leading-relaxed">
+                        {t.assistantChatHelp}
+                      </p>
+                      <div className="flex flex-wrap gap-2 justify-center pt-2">
+                        <button
+                          onClick={() => {
+                            setChatInput(t.assistantPromptBrownRustPrevent);
+                          }}
+                          className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-emerald-50 hover:text-emerald-800 text-xs text-slate-600 transition-colors"
+                        >
+                          {t.assistantPromptBrownRustPrevent}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setChatInput(t.assistantPromptBrownRustSymptoms);
+                          }}
+                          className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-emerald-50 hover:text-emerald-800 text-xs text-slate-600 transition-colors"
+                        >
+                          {t.assistantPromptBrownRustSymptoms}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {chatMessages.map((msg, i) => (
+                    <div key={i} className={cn("flex w-full", msg.role === 'user' ? "justify-end" : "justify-start")}>
+                      <div className={cn(
+                        "max-w-[85%] p-4 rounded-2xl text-xs sm:text-sm leading-relaxed shadow-sm",
+                        msg.role === 'user'
+                          ? "bg-[#163D2B] text-white rounded-tr-none shadow-emerald-950/10"
+                          : "bg-slate-50 text-slate-800 rounded-tl-none border border-slate-200"
+                      )}>
+                        <Markdown>{msg.text}</Markdown>
+                      </div>
+                    </div>
+                  ))}
+
+                  {isChatLoading && (
+                    <div className="flex justify-start">
+                      <div className="bg-slate-50 p-3 rounded-2xl rounded-tl-none border border-slate-200 flex items-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin text-[#2F7D4A]" />
+                        <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">{t.analyzing}</span>
+                      </div>
+                    </div>
+                  )}
+                  <div ref={chatEndRef} />
+                </div>
+
+                <div className="p-4 border-t border-slate-100 bg-white">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={chatInput}
+                      onChange={(e) => setChatInput(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+                      placeholder={t.chatPlaceholder}
+                      className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-5 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#2F7D4A]"
+                    />
+                    <button
+                      onClick={handleSendMessage}
+                      disabled={!chatInput.trim() || isChatLoading}
+                      className={cn(
+                        "w-12 h-12 rounded-2xl flex items-center justify-center transition-all shadow-md shrink-0",
+                        !chatInput.trim() || isChatLoading
+                          ? "bg-slate-200 text-slate-400"
+                          : "bg-[#163D2B] text-white hover:bg-[#2F7D4A] active:scale-95"
+                      )}
+                    >
+                      <Send className="w-5 h-5" />
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {/* 11. PHYTOSANITARY ANALYSIS HISTORY */}
+            {activeTab === 'history' && (
+              <motion.div 
+                key="history"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                className="space-y-6"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <h2 className="text-2xl font-serif font-bold text-slate-900">{t.history}</h2>
+                    <p className="text-xs text-slate-500 mt-1">Архив фитосанитарных обследований и верифицированных диагнозов</p>
+                  </div>
                   {history.length > 0 && (
                     <div className="flex items-center gap-2">
                       <button 
                         onClick={exportToCSV}
-                        className="flex items-center gap-2 px-4 py-2 bg-white border border-brand-100 text-brand-800 rounded-2xl text-[10px] font-bold uppercase tracking-[0.2em] hover:bg-brand-50 transition-all shadow-sm"
+                        className="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-slate-50 transition-colors shadow-sm"
                       >
-                        <Download className="w-4 h-4" />
+                        <Download className="w-3.5 h-3.5" />
                         CSV {selectedHistoryIds.size > 0 ? `(${selectedHistoryIds.size})` : ''}
                       </button>
                       <button 
                         onClick={exportToPDF}
-                        className="flex items-center gap-2 px-4 py-2 bg-white border border-brand-100 text-brand-800 rounded-2xl text-[10px] font-bold uppercase tracking-[0.2em] hover:bg-brand-50 transition-all shadow-sm"
+                        className="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-slate-50 transition-colors shadow-sm"
                       >
-                        <Download className="w-4 h-4" />
+                        <Download className="w-3.5 h-3.5" />
                         PDF {selectedHistoryIds.size > 0 ? `(${selectedHistoryIds.size})` : ''}
                       </button>
                     </div>
                   )}
                 </div>
-                <div className="flex items-center gap-6">
-                  {history.length > 0 && (
-                    <button 
-                      onClick={toggleSelectAll}
-                      className="text-[10px] font-bold text-brand-400 hover:text-brand-800 uppercase tracking-[0.2em] flex items-center gap-3 transition-colors"
-                    >
-                      <div className={cn(
-                        "w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all",
-                        selectedHistoryIds.size === history.length ? "bg-brand-800 border-brand-800" : "bg-white border-brand-200"
-                      )}>
-                        {selectedHistoryIds.size === history.length && <CheckCircle2 className="w-3.5 h-3.5 text-white" />}
-                      </div>
-                      {selectedHistoryIds.size === history.length ? t.deselectAll : t.selectAll}
-                    </button>
-                  )}
-                  <button 
-                    onClick={() => { setHistory([]); localStorage.removeItem('plant_health_history'); setSelectedHistoryIds(new Set()); }}
-                    className="text-[10px] font-bold text-red-500/60 hover:text-red-500 uppercase tracking-[0.2em] flex items-center gap-2 transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    {t.clearHistory}
-                  </button>
-                </div>
-              </div>
-              
-              {history.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {history.map(item => (
-                    <div 
-                      key={item.id} 
-                      ref={el => { historyRefs.current[item.id] = el; }}
-                      className={cn(
-                        "bg-white p-8 rounded-[40px] border transition-all group relative",
-                        highlightedHistoryId === item.id 
-                          ? "border-brand-800 ring-8 ring-brand-800/5 shadow-2xl scale-[1.02] z-10" 
-                          : "border-brand-100 shadow-sm hover:shadow-xl hover:border-brand-200 hover:-translate-y-1",
-                        selectedHistoryIds.has(item.id) && "border-brand-800 bg-brand-50/20"
-                      )}
-                    >
-                      <div 
-                        onClick={(e) => { e.stopPropagation(); toggleSelectItem(item.id); }}
-                        className="absolute top-8 left-8 z-10 cursor-pointer"
-                      >
-                        <div className={cn(
-                          "w-6 h-6 rounded-xl border-2 flex items-center justify-center transition-all shadow-sm",
-                          selectedHistoryIds.has(item.id) ? "bg-brand-800 border-brand-800" : "bg-white border-brand-200 group-hover:border-brand-400"
-                        )}>
-                          {selectedHistoryIds.has(item.id) && <CheckCircle2 className="w-4 h-4 text-white" />}
-                        </div>
-                      </div>
 
+                {history.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {history.map(item => (
                       <div 
-                        onClick={() => { setResult(item); setActiveTab('analyze'); }}
-                        className="cursor-pointer pl-12"
+                        key={item.id} 
+                        className={cn(
+                          "bg-white p-6 rounded-[28px] border transition-all relative",
+                          selectedHistoryIds.has(item.id) ? "border-[#2F7D4A] bg-emerald-50/20" : "border-slate-200 hover:shadow-md"
+                        )}
                       >
-                        <div className="flex items-start justify-between mb-6">
-                          <div>
-                            <p className="text-[10px] font-bold text-brand-300 uppercase tracking-[0.2em] mb-3">
-                              {new Date(item.timestamp).toLocaleDateString(lang === 'ru' ? 'ru-RU' : lang === 'kz' ? 'kk-KZ' : 'en-US')} • {new Date(item.timestamp).toLocaleTimeString(lang === 'ru' ? 'ru-RU' : lang === 'kz' ? 'kk-KZ' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
-                            </p>
-                            <h4 className="text-2xl font-serif font-medium text-slate-900 group-hover:text-brand-800 transition-colors tracking-tight leading-tight">{item.diagnosis}</h4>
-                          </div>
-                          <div className={cn(
-                            "px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest text-white shadow-lg",
-                            item.severity === 'high' ? "bg-red-500 shadow-red-500/20" : item.severity === 'medium' ? "bg-orange-500 shadow-orange-500/20" : "bg-emerald-500 shadow-emerald-500/20"
+                        <div className="flex items-start justify-between gap-3 mb-3">
+                          <span className={cn(
+                            "px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider text-white",
+                            item.severity === 'high' ? "bg-red-500" : item.severity === 'medium' ? "bg-amber-500" : "bg-emerald-500"
                           )}>
-                            {item.severity === 'high' ? t.high : item.severity === 'medium' ? t.medium : t.low}
-                          </div>
+                            {item.severity}
+                          </span>
+                          <span className="text-xs text-slate-400 font-mono">
+                            {new Date(item.timestamp).toLocaleDateString()}
+                          </span>
                         </div>
-                        <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.2em] text-brand-400">
-                          <div className="flex items-center gap-6">
-                            <span className="flex items-center gap-2"><Sprout className="w-4 h-4" /> {item.culture}</span>
-                            <span className="flex items-center gap-2"><TrendingDown className="w-4 h-4" /> -{item.economicImpact.potentialLossPercentage}%</span>
+
+                        <h4 className="font-serif font-bold text-lg text-slate-900 mb-1">{item.diagnosis}</h4>
+                        <p className="text-xs text-slate-500 mb-4">{item.culture} • Возраст: {item.ageDays} дн.</p>
+
+                        {item.agronomistReview && (
+                          <div className="mb-4 p-3 bg-emerald-50 rounded-xl text-xs text-[#163D2B] border border-emerald-200">
+                            <span className="font-bold">Верифицировано агрономом:</span> {item.agronomistReview.reviewerName}
                           </div>
-                          <ChevronRight className="w-5 h-5 text-brand-200 group-hover:translate-x-2 transition-transform" />
+                        )}
+
+                        <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+                          <div className="text-xs text-slate-600">
+                            Потери: <span className="font-bold text-red-600">{item.economicImpact.potentialLossPercentage}%</span> ({item.economicImpact.estimatedLossPerArea.toLocaleString()} {item.currency})
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleDiscussWithAI(item)}
+                              className="px-3 py-1.5 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 rounded-xl text-xs font-bold transition-colors flex items-center gap-1 border border-emerald-200"
+                            >
+                              <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>{t.discussWithAI || 'Обсудить с ИИ'}</span>
+                            </button>
+                            <button
+                              onClick={() => {
+                                setResult(item);
+                                setActiveTab('analysis');
+                              }}
+                              className="px-3 py-1.5 bg-slate-100 text-slate-700 hover:bg-[#163D2B] hover:text-white rounded-xl text-xs font-semibold transition-colors"
+                            >
+                              Подробнее
+                            </button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-32 bg-white rounded-[48px] border-2 border-dashed border-brand-100 shadow-sm">
-                  <div className="w-24 h-24 bg-brand-50 rounded-full flex items-center justify-center mx-auto mb-8">
-                    <History className="w-12 h-12 text-brand-200" />
+                    ))}
                   </div>
-                  <h3 className="text-2xl font-serif font-medium text-slate-900 mb-3 tracking-tight">{t.historyEmpty}</h3>
-                  <p className="text-brand-300 text-sm max-w-xs mx-auto leading-relaxed">{lang === 'ru' ? 'Ваши анализы появятся здесь после первой проверки.' : lang === 'kz' ? 'Бірінші тексеруден кейін талдауларыңыз осында пайда болады.' : 'Your analyses will appear here after the first check.'}</p>
-                </div>
-              )}
-            </motion.div>
-          )}
-
-          {activeTab === 'map' && (
-            <motion.div 
-              key="map"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="space-y-6 max-w-full"
-            >
-              <div className="bg-white rounded-[40px] shadow-2xl overflow-hidden border-[12px] border-white h-[500px] sm:h-[700px] relative w-full box-border group">
-                <MapContainer 
-                  center={location ? [location.lat, location.lng] : [43.2389, 76.8897]} 
-                  zoom={location ? 15 : 12} 
-                  maxZoom={22}
-                  zoomControl={false}
-                  style={{ height: '100%', width: '100%' }}
-                  scrollWheelZoom={true}
-                >
-                  <ScaleControl position="bottomleft" />
-                  {/* Base Layers */}
-                  {mapMode === 'map' && (
-                    <TileLayer
-                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-                      url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-                      maxZoom={22}
-                      maxNativeZoom={19}
-                    />
-                  )}
-                  
-                  {(mapMode === 'satellite' || mapMode === 'hybrid') && (
-                    <TileLayer
-                      url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-                      attribution='Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
-                      opacity={1}
-                      maxZoom={22}
-                      maxNativeZoom={19}
-                    />
-                  )}
-
-                  {mapMode === 'hybrid' && (
-                    <TileLayer
-                      url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png"
-                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-                      zIndex={1000}
-                      maxZoom={22}
-                      maxNativeZoom={19}
-                    />
-                  )}
-
-                  <MapController 
-                    markers={history.filter(h => h.location)} 
-                    userLocation={location} 
-                    onMapClick={(lat, lng) => setLocation({ lat, lng, accuracy: 0 })}
-                    mapRef={mapRef}
-                  />
-
-                  {location && (
-                    <>
-                      <Circle 
-                        center={[location.lat, location.lng]} 
-                        radius={location.accuracy || 0} 
-                        pathOptions={{ 
-                          fillColor: '#10b981', 
-                          fillOpacity: 0.05, 
-                          color: '#10b981', 
-                          weight: 1,
-                          dashArray: '5, 5'
-                        }} 
-                      />
-                      <Marker 
-                        position={[location.lat, location.lng]}
-                        icon={L.divIcon({
-                          className: 'user-location-icon',
-                          html: `
-                            <div class="relative w-8 h-8 flex items-center justify-center">
-                              <div class="w-5 h-5 bg-brand-600 rounded-full border-[3px] border-white shadow-xl"></div>
-                              <div class="absolute inset-0 bg-brand-400 rounded-full animate-ping opacity-40"></div>
-                            </div>
-                          `,
-                          iconSize: [32, 32],
-                          iconAnchor: [16, 16],
-                        })}
-                      >
-                        <Popup>
-                          <div className="text-[10px] font-bold uppercase tracking-widest text-brand-800">
-                            {t.youAreHere}
-                            {location.accuracy ? (
-                              <div className="text-[8px] text-brand-400 mt-1 font-bold">
-                                ±{Math.round(location.accuracy)}M
-                              </div>
-                            ) : (
-                              <div className="text-[8px] text-emerald-500 mt-1 font-bold">
-                                {t.precisePoint}
-                              </div>
-                            )}
-                          </div>
-                        </Popup>
-                      </Marker>
-                    </>
-                  )}
-
-                  {/* Manual Locate & Layer Switcher */}
-                  <div className="absolute top-8 right-8 z-[1000] flex flex-col gap-4 opacity-0 group-hover:opacity-100 transition-opacity duration-500">
-                    <div className="flex flex-col bg-white/90 backdrop-blur-md rounded-[24px] shadow-2xl border border-white/50 p-2 gap-2">
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); mapRef.current?.zoomIn(); }}
-                        className="w-12 h-12 bg-white rounded-2xl text-brand-800 flex items-center justify-center hover:bg-brand-50 transition-all active:scale-90 shadow-sm"
-                        title={lang === 'ru' ? 'Увеличить' : 'Zoom In'}
-                      >
-                        <Plus className="w-6 h-6" />
-                      </button>
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); mapRef.current?.zoomOut(); }}
-                        className="w-12 h-12 bg-white rounded-2xl text-brand-800 flex items-center justify-center hover:bg-brand-50 transition-all active:scale-90 shadow-sm"
-                        title={lang === 'ru' ? 'Уменьшить' : 'Zoom Out'}
-                      >
-                        <Minus className="w-6 h-6" />
-                      </button>
-                    </div>
-
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); requestLocation(); }}
-                      className="w-12 h-12 bg-brand-600 text-white rounded-2xl flex items-center justify-center hover:bg-brand-700 transition-all active:scale-90 shadow-xl shadow-brand-600/20"
-                      title={lang === 'ru' ? 'Мое местоположение' : 'My Location'}
-                    >
-                      <Navigation className="w-6 h-6" />
-                    </button>
-
-                    <div className="flex flex-col bg-white/90 backdrop-blur-md rounded-[24px] shadow-2xl border border-white/50 p-2 gap-2">
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); setMapMode('map'); }}
-                        className={cn(
-                          "w-12 h-12 rounded-2xl flex items-center justify-center transition-all active:scale-90 shadow-sm",
-                          mapMode === 'map' ? "bg-brand-800 text-white" : "bg-white text-brand-300 hover:text-brand-600"
-                        )}
-                        title={lang === 'ru' ? 'Карта' : 'Map'}
-                      >
-                        <MapIcon className="w-6 h-6" />
-                      </button>
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); setMapMode('satellite'); }}
-                        className={cn(
-                          "w-12 h-12 rounded-2xl flex items-center justify-center transition-all active:scale-90 shadow-sm",
-                          mapMode === 'satellite' ? "bg-brand-800 text-white" : "bg-white text-brand-300 hover:text-brand-600"
-                        )}
-                        title={lang === 'ru' ? 'Спутник' : 'Satellite'}
-                      >
-                        <Globe className="w-6 h-6" />
-                      </button>
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); setMapMode('hybrid'); }}
-                        className={cn(
-                          "w-12 h-12 rounded-2xl flex items-center justify-center transition-all active:scale-90 shadow-sm",
-                          mapMode === 'hybrid' ? "bg-brand-800 text-white" : "bg-white text-brand-300 hover:text-brand-600"
-                        )}
-                        title={lang === 'ru' ? 'Гибрид' : 'Hybrid'}
-                      >
-                        <Layers className="w-6 h-6" />
-                      </button>
-                    </div>
-
-                  </div>
-
-                  {history.filter(h => h.location).map(item => (
-                    <Marker 
-                      key={item.id}
-                      position={[item.location!.lat, item.location!.lng]}
-                      eventHandlers={{
-                        click: () => scrollToHistoryItem(item.id)
-                      }}
-                      icon={L.divIcon({
-                        className: 'custom-div-icon',
-                        html: `
-                          <div class="relative w-10 h-10 flex items-center justify-center">
-                            <div class="w-8 h-8 rounded-full border-2 border-white shadow-lg flex items-center justify-center text-lg" style="background-color: ${item.severity === 'high' ? '#ef4444' : item.severity === 'medium' ? '#f97316' : '#10b981'}">
-                              ${item.issueType === 'pest' ? '🐞' : item.issueType === 'disease' ? '🦠' : '🌱'}
-                            </div>
-                            <div class="absolute inset-0 rounded-full animate-ping opacity-20" style="background-color: ${item.severity === 'high' ? '#f87171' : item.severity === 'medium' ? '#fb923c' : '#34d399'}"></div>
-                          </div>
-                        `,
-                        iconSize: [40, 40],
-                        iconAnchor: [20, 20],
-                      })}
-                    >
-                      <Popup className="custom-popup">
-                        <div className="p-3 min-w-[180px]">
-                          <h4 className="font-serif font-medium text-slate-900 mb-2">{item.diagnosis}</h4>
-                          <div className="flex items-center gap-2 mb-3">
-                            <span className={cn(
-                              "px-2 py-0.5 rounded text-[8px] font-bold uppercase tracking-widest text-white shadow-sm",
-                              item.severity === 'high' ? "bg-red-500" : item.severity === 'medium' ? "bg-orange-500" : "bg-emerald-500"
-                            )}>
-                              {item.severity}
-                            </span>
-                            <span className="text-[8px] text-brand-300 font-bold uppercase tracking-widest">{item.culture}</span>
-                          </div>
-                          <p className="text-[10px] text-brand-400 font-bold mb-4 uppercase tracking-widest">
-                            {new Date(item.timestamp).toLocaleDateString(lang === 'ru' ? 'ru-RU' : 'en-US')}
-                          </p>
-                          <button 
-                            onClick={() => { setResult(item); setActiveTab('analyze'); }}
-                            className="w-full py-2 bg-brand-800 text-white text-[10px] font-bold uppercase tracking-widest rounded-xl hover:bg-brand-900 transition-colors shadow-lg shadow-brand-800/20"
-                          >
-                            {t.details}
-                          </button>
-                        </div>
-                      </Popup>
-                    </Marker>
-                  ))}
-                </MapContainer>
-
-                {/* Overlay for empty state */}
-                {history.filter(h => h.location).length === 0 && (
-                  <div className="absolute inset-0 z-[1000] bg-brand-900/40 backdrop-blur-sm flex items-center justify-center p-6">
-                    <div className="bg-white p-10 rounded-[48px] border border-white/20 shadow-2xl text-center w-full max-w-sm">
-                      <div className="w-20 h-20 bg-brand-50 rounded-full flex items-center justify-center mx-auto mb-6">
-                        <MapIcon className="w-10 h-10 text-brand-200" />
-                      </div>
-                      <h3 className="text-2xl font-serif font-medium text-slate-900 mb-3 tracking-tight">{t.fieldMap}</h3>
-                      
-                      {history.length === 0 ? (
-                        <div className="space-y-6">
-                          <p className="text-brand-300 text-sm leading-relaxed">
-                            {t.uploadInstructions}
-                          </p>
-                          <button 
-                            onClick={() => {
-                              const demoData: any = [
-                                {
-                                  id: 'demo-1',
-                                  diagnosis: lang === 'en' ? 'Wheat Rust' : 'Ржавчина пшеницы',
-                                  issueType: 'disease',
-                                  severity: 'high',
-                                  culture: 'wheat',
-                                  timestamp: Date.now() - 86400000,
-                                  location: { lat: 43.2389, lng: 76.8897 },
-                                  confidence: 0.92,
-                                  currency: 'KZT',
-                                  unitSystem: 'metric',
-                                  economicImpact: { potentialLossPercentage: 30, estimatedLossPerArea: 45000, estimatedLossWeight: 0.5 },
-                                  recommendations: [],
-                                  localizedAdvice: 'Demo data'
-                                },
-                                {
-                                  id: 'demo-2',
-                                  diagnosis: lang === 'en' ? 'Spider Mite' : 'Паутинный клещ',
-                                  issueType: 'pest',
-                                  severity: 'medium',
-                                  culture: 'apple',
-                                  timestamp: Date.now() - 43200000,
-                                  location: { lat: 43.2450, lng: 76.9000 },
-                                  confidence: 0.88,
-                                  currency: 'KZT',
-                                  unitSystem: 'metric',
-                                  economicImpact: { potentialLossPercentage: 15, estimatedLossPerArea: 25000, estimatedLossWeight: 0.2 },
-                                  recommendations: [],
-                                  localizedAdvice: 'Demo data'
-                                }
-                              ];
-                              setHistory(demoData);
-                            }}
-                            className="bg-brand-800 text-white px-8 py-3 rounded-2xl text-[10px] font-bold uppercase tracking-widest hover:bg-brand-900 transition-all shadow-xl shadow-brand-800/20 active:scale-95"
-                          >
-                            {t.demoData}
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="mt-6 p-6 bg-accent-50 border border-accent-100 rounded-3xl">
-                          <p className="text-accent-600 text-xs font-bold leading-relaxed uppercase tracking-widest">
-                            {t.gpsWarning}
-                          </p>
-                        </div>
-                      )}
-                    </div>
+                ) : (
+                  <div className="p-12 text-center bg-white rounded-[32px] border border-slate-200">
+                    <History className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                    <p className="text-sm font-semibold text-slate-700">История анализов пуста</p>
+                    <p className="text-xs text-slate-400 mt-1">Проведите диагностику пораженных растений во вкладке "Диагностика"</p>
                   </div>
                 )}
-              </div>
-            </motion.div>
-          )}
+              </motion.div>
+            )}
 
-          {activeTab === 'assistant' && (
-            <motion.div 
-              key="assistant"
-              initial={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.98 }}
-              className="h-[calc(100vh-220px)] flex flex-col bg-white rounded-[48px] shadow-sm border border-brand-100 overflow-hidden"
-            >
-              {/* Chat Header */}
-              <div className="px-5 py-3 border-b border-brand-100 flex items-center justify-between bg-brand-50/30">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 bg-brand-800 rounded-lg flex items-center justify-center shadow-md shadow-brand-800/10">
-                    <MessageSquare className="text-white w-4 h-4" />
-                  </div>
-                  <div>
-                    <h3 className="font-serif font-medium text-base text-slate-900 tracking-tight">{t.assistant}</h3>
-                    <p className="text-[8px] text-emerald-600 font-bold uppercase tracking-widest flex items-center gap-1 mt-0.5">
-                      <span className="w-1 h-1 bg-emerald-500 rounded-full animate-pulse" /> {t.online}
-                    </p>
-                  </div>
-                </div>
-                {result && (
-                  <div className="hidden sm:block text-right">
-                    <p className="text-[8px] font-bold text-brand-300 uppercase tracking-widest">{t.context}</p>
-                    <p className="text-[9px] font-bold text-brand-700">{result.diagnosis}</p>
-                  </div>
-                )}
-              </div>
+            {/* 12. NOTIFICATIONS */}
+            {activeTab === 'notifications' && (
+              <motion.div
+                key="notifications"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+              >
+                <NotificationsView
+                  notifications={displayedNotifications}
+                  lang={lang}
+                  onMarkAsRead={handleMarkNotificationRead}
+                  onMarkAllAsRead={handleMarkAllNotificationsRead}
+                  setActiveTab={setActiveTab}
+                />
+              </motion.div>
+            )}
 
-              {/* Chat Messages */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar">
-                {chatMessages.length === 0 && (
-                  <div className="h-full flex flex-col items-center justify-center text-center space-y-4">
-                    <div className="w-12 h-12 bg-brand-50 rounded-full flex items-center justify-center">
-                      <MessageSquare className="w-6 h-6 text-brand-200" />
-                    </div>
-                    <div>
-                      <h4 className="text-lg font-serif font-medium text-slate-900 mb-1 tracking-tight">{t.chatPlaceholder}</h4>
-                      <p className="text-[11px] text-brand-300 max-w-xs mx-auto leading-relaxed">
-                        {lang === 'ru' ? 'Например: "Как предотвратить ржавчину в следующем году?"' : lang === 'kz' ? 'Мысалы: "Келесі жылы тат ауруын қалай болдырмауға болады?"' : 'Example: "How to prevent rust next year?"'}
-                      </p>
-                    </div>
-                  </div>
-                )}
-                {chatMessages.map((msg, i) => (
-                  <div key={i} className={cn(
-                    "flex w-full",
-                    msg.role === 'user' ? "justify-end" : "justify-start"
-                  )}>
-                    <div className={cn(
-                      "max-w-[85%] p-3 sm:p-4 rounded-[18px] text-xs sm:text-sm leading-relaxed shadow-sm",
-                      msg.role === 'user' 
-                        ? "bg-brand-800 text-white rounded-tr-none shadow-brand-800/10" 
-                        : "bg-white text-slate-700 rounded-tl-none border border-brand-100"
-                    )}>
-                      <div className="markdown-body prose-invert">
-                        <Markdown>{msg.text}</Markdown>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                {isChatLoading && (
-                  <div className="flex justify-start">
-                    <div className="bg-white p-3 rounded-[18px] rounded-tl-none border border-brand-100 flex items-center gap-2 shadow-sm">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-400" />
-                      <span className="text-[8px] text-brand-400 font-bold uppercase tracking-[0.2em] italic">{t.analyzing}</span>
-                    </div>
-                  </div>
-                )}
-                <div ref={chatEndRef} />
-              </div>
+            {/* 13. REPORTS (PDF) */}
+            {activeTab === 'reports' && (
+              <motion.div
+                key="reports"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+              >
+                <ReportsView
+                  fields={displayedFields}
+                  analyses={displayedHistory}
+                  recommendations={displayedRecommendations}
+                  lang={lang}
+                />
+              </motion.div>
+            )}
 
-              {/* Chat Input */}
-              <div className="p-3 sm:p-4 border-t border-brand-100 bg-brand-50/20">
-                <div className="flex gap-3">
-                  <input
-                    type="text"
-                    value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                    placeholder={t.chatPlaceholder}
-                    className="flex-1 bg-white border border-brand-100 rounded-xl px-5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-800/5 focus:border-brand-800 transition-all shadow-sm"
-                  />
-                  <button
-                    onClick={handleSendMessage}
-                    disabled={!chatInput.trim() || isChatLoading}
-                    className={cn(
-                      "w-11 h-11 rounded-xl flex items-center justify-center transition-all shadow-md",
-                      !chatInput.trim() || isChatLoading
-                        ? "bg-brand-100 text-brand-300"
-                        : "bg-brand-800 text-white hover:bg-brand-700 shadow-brand-800/10 active:scale-95"
-                    )}
-                  >
-                    <Send className="w-5 h-5" />
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </main>
+            {/* 14. SETTINGS */}
+            {activeTab === 'settings' && (
+              <motion.div
+                key="settings"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+              >
+                <SettingsComponent
+                  showSettings={true}
+                  isInlineView={true}
+                  currency={currency}
+                  setCurrency={setCurrency}
+                  unitSystem={unitSystem}
+                  setUnitSystem={setUnitSystem}
+                  location={location || null}
+                  setLocation={setLocation}
+                  lang={lang}
+                  demoDataEnabled={demoDataEnabled}
+                  setDemoDataEnabled={handleSetDemoDataEnabled}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </main>
+      </div>
 
-      {/* Settings Modal */}
-      <SettingsModal 
-        showSettings={showSettings}
-        setShowSettings={setShowSettings}
+      {/* Agronomist Review Modal */}
+      {reviewModalAnalysis && (
+        <AgronomistReviewModal
+          analysis={reviewModalAnalysis}
+          isOpen={!!reviewModalAnalysis}
+          onClose={() => setReviewModalAnalysis(null)}
+          onSubmitReview={handleSubmitReview}
+        />
+      )}
+
+      {/* Settings Modal (invoked from TopBar) */}
+      <SettingsComponent 
+        showSettings={showSettingsModal}
+        setShowSettings={setShowSettingsModal}
         currency={currency}
         setCurrency={setCurrency}
         unitSystem={unitSystem}
@@ -1478,189 +1584,21 @@ export default function App() {
         location={location || null}
         setLocation={setLocation}
         lang={lang}
+        demoDataEnabled={demoDataEnabled}
+        setDemoDataEnabled={handleSetDemoDataEnabled}
       />
 
-      {/* Info Modals */}
-      <AnimatePresence>
-        {infoModal && (
-          <div className="fixed inset-0 z-[4000] flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setInfoModal(null)}
-              className="absolute inset-0 bg-brand-900/60 backdrop-blur-sm"
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-2xl bg-white rounded-[48px] shadow-2xl overflow-hidden"
-            >
-              <div className="px-10 py-8 border-b border-brand-100 flex items-center justify-between bg-brand-50/30">
-                <h3 className="font-serif font-medium text-2xl text-slate-900 tracking-tight">
-                  {infoModal === 'privacy' ? t.privacyPolicy : infoModal === 'help' ? t.help : t.contacts}
-                </h3>
-                <button 
-                  onClick={() => setInfoModal(null)}
-                  className="w-10 h-10 flex items-center justify-center hover:bg-brand-100 rounded-full transition-colors"
-                >
-                  <X className="w-5 h-5 text-brand-400" />
-                </button>
-              </div>
-              
-              <div className="p-10">
-                <div className="text-slate-600 text-sm leading-relaxed whitespace-pre-wrap max-h-[60vh] overflow-y-auto no-scrollbar pr-2">
-                  {infoModal === 'privacy' ? t.privacyContent : infoModal === 'help' ? t.helpContent : t.contactsContent}
-                </div>
-                <div className="pt-10">
-                  <button 
-                    onClick={() => setInfoModal(null)}
-                    className="w-full py-5 bg-brand-800 text-white text-[10px] font-bold uppercase tracking-widest rounded-2xl shadow-xl shadow-brand-800/20 hover:bg-brand-900 transition-all active:scale-[0.98]"
-                  >
-                    {t.close}
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Auth Modal */}
-      <AnimatePresence>
-        {showAuthModal && (
-          <div className="fixed inset-0 z-[4000] flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowAuthModal(false)}
-              className="absolute inset-0 bg-brand-900/60 backdrop-blur-sm"
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-md bg-white rounded-[48px] shadow-2xl overflow-hidden"
-            >
-              <div className="p-10">
-                <div className="text-center mb-10">
-                  <div className="w-20 h-20 bg-brand-50 rounded-full flex items-center justify-center mx-auto mb-6">
-                    <User className="w-10 h-10 text-brand-600" />
-                  </div>
-                  <h3 className="text-3xl font-serif font-medium text-slate-900 mb-3 tracking-tight">{t.authRequired}</h3>
-                  <p className="text-sm text-brand-300 leading-relaxed">{t.authInstructions}</p>
-                </div>
-
-                <form onSubmit={handleAuth} className="space-y-5">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-brand-300 uppercase tracking-widest ml-1">{t.email}</label>
-                    <div className="relative">
-                      <Mail className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-300" />
-                      <input 
-                        type="email" 
-                        required
-                        value={authEmail}
-                        onChange={(e) => setAuthEmail(e.target.value)}
-                        className="w-full bg-brand-50 border border-brand-100 rounded-2xl pl-14 pr-6 py-4 text-sm font-medium focus:outline-none focus:ring-4 focus:ring-brand-600/5 focus:border-brand-600 transition-all"
-                        placeholder="example@mail.com"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-brand-300 uppercase tracking-widest ml-1">{t.password}</label>
-                    <div className="relative">
-                      <Lock className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-300" />
-                      <input 
-                        type="password" 
-                        required
-                        value={authPassword}
-                        onChange={(e) => setAuthPassword(e.target.value)}
-                        className="w-full bg-brand-50 border border-brand-100 rounded-2xl pl-14 pr-6 py-4 text-sm font-medium focus:outline-none focus:ring-4 focus:ring-brand-600/5 focus:border-brand-600 transition-all"
-                        placeholder="••••••••"
-                      />
-                    </div>
-                  </div>
-
-                  {authError && (
-                    <div className="p-4 bg-red-50 border border-red-100 rounded-2xl flex items-center gap-3 text-xs font-bold text-red-600 uppercase tracking-widest">
-                      <AlertTriangle className="w-4 h-4 shrink-0" />
-                      {authError}
-                    </div>
-                  )}
-
-                  {!isFirebaseConfigured && (
-                    <div className="p-4 bg-accent-50 border border-accent-100 rounded-2xl flex items-center gap-3 text-xs font-bold text-accent-600 uppercase tracking-widest">
-                      <ShieldAlert className="w-4 h-4 shrink-0" />
-                      {lang === 'ru' ? 'Firebase не настроен' : 'Firebase not configured'}
-                    </div>
-                  )}
-
-                  <button 
-                    type="submit"
-                    disabled={isAuthLoading}
-                    className="w-full py-5 bg-brand-800 text-white text-[10px] font-bold uppercase tracking-widest rounded-2xl shadow-xl shadow-brand-800/20 hover:bg-brand-900 transition-all flex items-center justify-center gap-3"
-                  >
-                    {isAuthLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <LogIn className="w-5 h-5" />}
-                    {t.login}
-                  </button>
-                </form>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      <footer className="bg-white border-t border-brand-100 py-12 pb-32 sm:pb-12">
-        <div className="max-w-6xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-8">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-brand-800 rounded-xl flex items-center justify-center shadow-lg shadow-brand-800/10">
-              <Sprout className="text-white w-5 h-5" />
-            </div>
-            <span className="font-serif font-medium text-xl text-slate-900 tracking-tight">{t.title} Predictor</span>
-          </div>
-          <div className="flex items-center gap-8 text-[10px] font-bold text-brand-300 uppercase tracking-[0.2em]">
-            <button onClick={() => setInfoModal('privacy')} className="hover:text-brand-600 transition-colors">{t.privacyPolicy}</button>
-            <button onClick={() => setInfoModal('help')} className="hover:text-brand-600 transition-colors">{t.help}</button>
-            <button onClick={() => setInfoModal('contacts')} className="hover:text-brand-600 transition-colors">{t.contacts}</button>
-          </div>
-        </div>
-      </footer>
-
-      {/* Mobile Bottom Navigation */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 z-[2000] px-4 pb-6 pt-2 bg-gradient-to-t from-white via-white to-transparent">
-        <nav className="max-w-md mx-auto glass-card rounded-[32px] p-2 flex items-center justify-between shadow-2xl border border-brand-100/50">
-          {[
-            { id: 'analyze', icon: Camera, label: t.analyze },
-            { id: 'history', icon: History, label: t.history },
-            { id: 'map', icon: MapIcon, label: t.map },
-            { id: 'assistant', icon: MessageSquare, label: t.assistant }
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as Tab)}
-              className={cn(
-                "flex flex-col items-center gap-1.5 px-4 py-3 rounded-2xl transition-all duration-300 relative",
-                activeTab === tab.id 
-                  ? "text-brand-800" 
-                  : "text-brand-300 hover:text-brand-600"
-              )}
-            >
-              {activeTab === tab.id && (
-                <motion.div 
-                  layoutId="mobile-tab-bg"
-                  className="absolute inset-0 bg-brand-50 rounded-2xl -z-10"
-                  transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
-                />
-              )}
-              <tab.icon className={cn("w-5 h-5", activeTab === tab.id ? "text-brand-600" : "text-brand-200")} />
-              <span className="text-[8px] font-bold uppercase tracking-widest">{tab.label}</span>
-            </button>
-          ))}
-        </nav>
-      </div>
+      {/* Firebase Auth Modal (Google Sign-In & Email) */}
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        lang={lang}
+        currentUser={user}
+        onAuthSuccess={(u) => {
+          setUser(u);
+          setShowAuthModal(false);
+        }}
+      />
     </div>
   );
 }
